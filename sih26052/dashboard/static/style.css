@@ -1,0 +1,249 @@
+/* SIH26052 Dashboard — Dark theme, visible from across the room */
+
+:root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-card: #1c2333;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --accent-green: #3fb950;
+    --accent-red: #f85149;
+    --accent-yellow: #d29922;
+    --accent-blue: #58a6ff;
+    --border-color: #30363d;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+#dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 2rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+#dashboard-header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-yellow);
+    transition: background 0.3s;
+}
+
+.status-dot.connected {
+    background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+}
+
+.status-dot.disconnected {
+    background: var(--accent-red);
+}
+
+/* ── Stats bar ─────────────────────────────────────────────────────────── */
+
+.stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+}
+
+.stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    transition: border-color 0.3s;
+}
+
+.stat-card:hover {
+    border-color: var(--accent-blue);
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.stat-value {
+    font-family: var(--font-mono);
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.stat-unit {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Xrun card turns red on xruns */
+#xrun-card.has-xruns .stat-value {
+    color: var(--accent-red);
+}
+
+/* Mode card colors */
+#mode-value.enhanced {
+    color: var(--accent-green);
+}
+
+#mode-value.bypass {
+    color: var(--accent-yellow);
+}
+
+/* ── Transient indicator ───────────────────────────────────────────────── */
+
+.transient-section {
+    padding: 0 2rem;
+}
+
+.transient-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 1rem;
+    border-radius: 12px;
+    background: var(--bg-card);
+    border: 2px solid var(--border-color);
+    transition: all 0.2s;
+}
+
+.transient-indicator.fired {
+    background: rgba(248, 81, 73, 0.15);
+    border-color: var(--accent-red);
+    animation: pulse-red 0.5s ease-in-out infinite alternate;
+}
+
+.transient-indicator.releasing {
+    background: rgba(210, 153, 34, 0.1);
+    border-color: var(--accent-yellow);
+}
+
+@keyframes pulse-red {
+    from { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.3); }
+    to   { box-shadow: 0 0 20px 5px rgba(248, 81, 73, 0.15); }
+}
+
+.transient-icon {
+    font-size: 2rem;
+}
+
+.transient-text {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+}
+
+.transient-indicator.fired .transient-text {
+    color: var(--accent-red);
+}
+
+.transient-indicator.idle .transient-text {
+    color: var(--text-secondary);
+}
+
+.transient-indicator.releasing .transient-text {
+    color: var(--accent-yellow);
+}
+
+/* ── Spectrograms ──────────────────────────────────────────────────────── */
+
+.spectrogram-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+    flex: 1;
+}
+
+.spectrogram-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1rem;
+}
+
+.spectrogram-container h2 {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+canvas {
+    width: 100%;
+    height: 200px;
+    border-radius: 8px;
+    background: #000;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+#dashboard-footer {
+    padding: 1rem 2rem;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .stats-bar {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .spectrogram-section {
+        grid-template-columns: 1fr;
+    }
+
+    .stat-value {
+        font-size: 1.8rem;
+    }
+}

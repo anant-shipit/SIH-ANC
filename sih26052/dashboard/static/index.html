@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIH26052 — Speech Enhancement Dashboard</title>
+    <meta name="description" content="Real-time monitoring dashboard for GTCRN speech enhancement on Raspberry Pi 4B">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header id="dashboard-header">
+        <h1>SIH26052 — Real-Time Speech Enhancement</h1>
+        <div class="connection-status" id="connection-status">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Connecting...</span>
+        </div>
+    </header>
+
+    <main id="dashboard-main">
+        <!-- Stats bar -->
+        <section class="stats-bar" id="stats-bar">
+            <div class="stat-card" id="latency-card">
+                <span class="stat-label">Latency</span>
+                <span class="stat-value" id="latency-value">—</span>
+                <span class="stat-unit">ms</span>
+            </div>
+            <div class="stat-card" id="xrun-card">
+                <span class="stat-label">Xruns</span>
+                <span class="stat-value" id="xrun-value">0</span>
+                <span class="stat-unit"></span>
+            </div>
+            <div class="stat-card" id="mode-card">
+                <span class="stat-label">Mode</span>
+                <span class="stat-value" id="mode-value">ENHANCED</span>
+                <span class="stat-unit"></span>
+            </div>
+            <div class="stat-card" id="frame-card">
+                <span class="stat-label">Frames</span>
+                <span class="stat-value" id="frame-value">0</span>
+                <span class="stat-unit"></span>
+            </div>
+        </section>
+
+        <!-- Transient indicator -->
+        <section class="transient-section" id="transient-section">
+            <div class="transient-indicator" id="transient-indicator">
+                <span class="transient-icon" id="transient-icon">⚡</span>
+                <span class="transient-text" id="transient-text">IDLE</span>
+            </div>
+        </section>
+
+        <!-- Spectrograms -->
+        <section class="spectrogram-section" id="spectrogram-section">
+            <div class="spectrogram-container">
+                <h2>Input (Before Enhancement)</h2>
+                <canvas id="spectrogram-in" width="800" height="200"></canvas>
+            </div>
+            <div class="spectrogram-container">
+                <h2>Output (After Enhancement)</h2>
+                <canvas id="spectrogram-out" width="800" height="200"></canvas>
+            </div>
+        </section>
+    </main>
+
+    <footer id="dashboard-footer">
+        <span>GTCRN on Raspberry Pi 4B | SIH 2026</span>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

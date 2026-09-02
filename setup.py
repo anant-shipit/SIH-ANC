@@ -1,0 +1,38 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="sih26052",
+    version="0.1.0",
+    description="Real-time speech enhancement for defense environments using GTCRN on Raspberry Pi 4B",
+    author="SIH26052 Team",
+    packages=find_packages(),
+    python_requires=">=3.9",
+    install_requires=[
+        "numpy>=1.24,<2.0",
+        "soundfile>=0.12",
+        "scipy>=1.11",
+        "sounddevice>=0.4",
+        "onnxruntime>=1.15",
+    ],
+    extras_require={
+        "train": [
+            "torch>=1.11",
+            "einops>=0.7",
+            "ptflops>=0.7",
+            "librosa>=0.10",
+        ],
+        "eval": [
+            "pesq>=0.0.4",
+            "pystoi>=0.3",
+        ],
+        "dashboard": [
+            "fastapi>=0.100",
+            "uvicorn>=0.23",
+            "websockets>=11.0",
+        ],
+        "dev": [
+            "pytest>=7.0",
+            "pytest-cov>=4.0",
+        ],
+    },
+)

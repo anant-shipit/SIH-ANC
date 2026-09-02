@@ -1,0 +1,30 @@
+# ── Core ──
+numpy>=1.24,<2.0
+soundfile>=0.12
+librosa>=0.10
+scipy>=1.11
+
+# ── Training (dev machine only — NOT installed on Pi) ──
+torch>=1.11
+einops>=0.7
+ptflops>=0.7
+
+# ── Evaluation ──
+pesq>=0.0.4
+pystoi>=0.3
+
+# ── ONNX export + inference ──
+onnx>=1.14
+onnxruntime>=1.15
+
+# ── Real-time audio ──
+sounddevice>=0.4
+
+# ── Dashboard ──
+fastapi>=0.100
+uvicorn>=0.23
+websockets>=11.0
+
+# ── Testing ──
+pytest>=7.0
+pytest-cov>=4.0
