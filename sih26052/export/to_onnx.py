@@ -108,6 +108,8 @@ def export_streaming_onnx(
         state_dict = state_dict["model_state_dict"]
     elif "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
+    elif "model" in state_dict:
+        state_dict = state_dict["model"]
 
     model.load_state_dict(state_dict, strict=False)
     model.eval()

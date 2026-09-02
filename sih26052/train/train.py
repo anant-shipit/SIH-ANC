@@ -150,6 +150,8 @@ def load_pretrained(model: nn.Module, checkpoint_path: str | Path) -> nn.Module:
         state_dict = state_dict["model_state_dict"]
     elif "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
+    elif "model" in state_dict:
+        state_dict = state_dict["model"]
 
     model.load_state_dict(state_dict, strict=False)
     logger.info("Loaded pretrained weights from %s", checkpoint_path)
