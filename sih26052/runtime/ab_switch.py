@@ -5,8 +5,15 @@ Toggles between raw (bypassed) and enhanced audio with a smooth
 crossfade to prevent audible clicks/pops at the transition.
 
 The switch is controlled by:
-    1. GPIO button (primary) — physical button on the Pi
+    1. GPIO button (primary) — gpiozero Button on GPIO 17
+       (ReSpeaker HAT user button).  Works on Pi 4B and Pi 5.
     2. Keyboard fallback — spacebar when running on a laptop
+
+Pi 5 migration note:
+    RPi.GPIO does NOT work on Pi 5 (different GPIO controller).
+    gpiozero + lgpio is the officially supported replacement.
+    bounce_time is in seconds (0.2), not milliseconds (200).
+    No GPIO.cleanup() equivalent needed — gpiozero handles it.
 
 Why 20ms crossfade?
     - Long enough to prevent audible discontinuity (human ear resolves
@@ -179,3 +186,33 @@ class ABSwitch:
             self._fade_step = step
 
         return result.astype(np.float32)
+
+
+# ── GPIO + Keyboard wiring ─────────────────────────────────────────────────
+
+def attach_gpio_button(
+    switch: ABSwitch,
+    gpio_pin: int = 17,
+    bounce_time: float = 0.2,
+) -> object | None:
+    """Wire a physical button to the A/B switch via gpiozero.
+
+    GPIO 17 is the ReSpeaker HAT's user button.
+    Uses gpiozero (works on both Pi 4B and Pi 5).
+    Returns the Button object so the caller can hold a reference
+    (preventing garbage collection of the callback).
+    Returns None if gpiozero is not available (e.g. on a laptop).
+    """
+    try:
+        from gpiozero import Button
+
+        button = Button(gpio_pin, pull_up=True, bounce_time=bounce_time)
+        button.when_pressed = lambda: switch.toggle()
+        logger.info(
+            "GPIO button attached on pin %d (bounce_time=%.1fs)",
+            gpio_pin, bounce_time,
+        )
+        return button
+    except Exception as exc:
+        logger.warning("GPIO button not available: %s (keyboard fallback only)", exc)
+        return None

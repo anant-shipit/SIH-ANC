@@ -1,0 +1,17 @@
+# requirements-pi.txt — Raspberry Pi deployment dependencies only.
+#
+# These are the ONLY packages needed on the Pi.
+# No torch, no training libs, no eval libs.
+# Install with: pip install -r requirements-pi.txt
+#
+# Both gpiozero and lgpio ship with Raspberry Pi OS.
+# Only needed if your venv was created without --system-site-packages.
+
+numpy>=1.24,<2.0
+soundfile>=0.12
+sounddevice>=0.4
+onnxruntime>=1.15
+
+# GPIO (Pi 5 uses lgpio backend, Pi 4B uses rpigpio backend)
+gpiozero
+lgpio
