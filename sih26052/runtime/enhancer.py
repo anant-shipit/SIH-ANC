@@ -76,6 +76,12 @@ class StreamingEnhancer:
             len(self._states),
         )
 
+        # ── Warm-up run (before audio stream opens) ──
+        dummy_spec = np.zeros((self.n_freq, 2), dtype=np.float32)
+        self.process_frame(dummy_spec)
+        self.reset()
+        logger.info("StreamingEnhancer warmed up successfully")
+
     def process_frame(self, spec: np.ndarray) -> np.ndarray:
         """Enhance a single STFT frame.
 

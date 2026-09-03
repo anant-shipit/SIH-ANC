@@ -39,18 +39,20 @@ def benchmark_rtf(
     hop: int = 256,
     n_runs: int = 3,
     warmup: bool = True,
+    num_threads: int = 1,
 ) -> dict:
     """Measure the Real-Time Factor of an ONNX model.
 
     Parameters
     ----------
-    onnx_path  : path to the ONNX model
-    duration_s : simulated audio duration in seconds
-    sr         : sample rate
-    nfft       : FFT size
-    hop        : hop size (256 = 16ms at 16kHz)
-    n_runs     : number of timed runs (takes median)
-    warmup     : if True, do one untimed warm-up run first
+    onnx_path   : path to the ONNX model
+    duration_s  : simulated audio duration in seconds
+    sr          : sample rate
+    nfft        : FFT size
+    hop         : hop size (256 = 16ms at 16kHz)
+    n_runs      : number of timed runs (takes median)
+    warmup      : if True, do one untimed warm-up run first
+    num_threads : intra_op_num_threads for ONNX Runtime (default: 1)
 
     Returns
     -------
@@ -63,8 +65,14 @@ def benchmark_rtf(
     """
     import onnxruntime as ort
 
+    sess_opts = ort.SessionOptions()
+    sess_opts.intra_op_num_threads = num_threads
+    sess_opts.inter_op_num_threads = 1
+    sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
     sess = ort.InferenceSession(
         str(onnx_path),
+        sess_options=sess_opts,
         providers=["CPUExecutionProvider"],
     )
 
