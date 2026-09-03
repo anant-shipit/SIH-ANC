@@ -52,6 +52,8 @@ const ctxOut = canvasOut.getContext('2d');
 
 // ── WebSocket Connection ─────────────────────────────────────────────────
 
+let pingTimer = null;
+
 function connect() {
     if (ws && ws.readyState === WebSocket.OPEN) return;
 
@@ -64,8 +66,11 @@ function connect() {
             clearInterval(reconnectTimer);
             reconnectTimer = null;
         }
+        if (pingTimer) {
+            clearInterval(pingTimer);
+        }
         // Send periodic pings to keep connection alive
-        setInterval(() => {
+        pingTimer = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send('ping');
             }
@@ -84,6 +89,10 @@ function connect() {
     ws.onclose = () => {
         statusDot.className = 'status-dot disconnected';
         statusText.textContent = 'Disconnected';
+        if (pingTimer) {
+            clearInterval(pingTimer);
+            pingTimer = null;
+        }
         scheduleReconnect();
     };
 

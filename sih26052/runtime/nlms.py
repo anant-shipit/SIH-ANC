@@ -65,8 +65,10 @@ class NLMSFilter:
         # ── Filter coefficients ──
         self._weights = np.zeros(filter_length, dtype=np.float64)
 
-        # ── Reference signal buffer (ring buffer for the filter delay line) ──
-        self._ref_buffer = np.zeros(filter_length, dtype=np.float64)
+        # ── Reference signal buffer (double buffered to avoid allocations) ──
+        # By keeping a buffer of size 2*L, we can always take a contiguous slice of size L.
+        self._ref_buffer = np.zeros(filter_length * 2, dtype=np.float64)
+        self._idx = filter_length
 
     def process_sample(self, enhanced: float, reference: float) -> float:
         """Process a single sample.
@@ -85,19 +87,27 @@ class NLMSFilter:
             e[n] = enhanced[n] - y[n]       (error = cleaned output)
             w[n+1] = w[n] + μ · e[n] · x[n] / (x[n]^T · x[n] + δ)
         """
-        # Shift reference buffer and insert new sample
-        self._ref_buffer = np.roll(self._ref_buffer, 1)
-        self._ref_buffer[0] = float(reference)
+        self._idx -= 1
+        if self._idx < 0:
+            # Wrap around: copy the newest L-1 samples to the end of the buffer
+            self._ref_buffer[self.filter_length : 2 * self.filter_length - 1] = \
+                self._ref_buffer[0 : self.filter_length - 1]
+            self._idx = self.filter_length - 1
+
+        self._ref_buffer[self._idx] = float(reference)
+        
+        # Contiguous view of the last L samples (newest first)
+        x = self._ref_buffer[self._idx : self._idx + self.filter_length]
 
         # Predict noise at primary mic
-        predicted_noise = np.dot(self._weights, self._ref_buffer)
+        predicted_noise = np.dot(self._weights, x)
 
         # Error (= cleaned output)
         error = float(enhanced) - predicted_noise
 
         # Adapt weights
-        norm = np.dot(self._ref_buffer, self._ref_buffer) + self.delta
-        self._weights += self.mu * error * self._ref_buffer / norm
+        norm = np.dot(x, x) + self.delta
+        self._weights += self.mu * error * x / norm
 
         return float(error)
 

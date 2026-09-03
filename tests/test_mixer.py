@@ -25,28 +25,13 @@ from sih26052.data.mixer import (
 )
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
-def make_sine(freq_hz: float = 440.0, duration_s: float = 2.0, sr: int = 16000) -> np.ndarray:
-    """Generate a sine wave — deterministic clean signal for tests."""
-    t = np.arange(int(sr * duration_s), dtype=np.float32) / sr
-    return (0.5 * np.sin(2 * np.pi * freq_hz * t)).astype(np.float32)
-
-
-def make_noise(duration_s: float = 2.0, sr: int = 16000, seed: int = 42) -> np.ndarray:
-    """Generate white noise."""
-    rng = np.random.default_rng(seed)
-    n_samples = int(sr * duration_s)
-    return rng.standard_normal(n_samples).astype(np.float32) * 0.3
-
-
 # ── Tests ──────────────────────────────────────────────────────────────────
 
 class TestSNRAccuracy:
     """The actual SNR of mixed output should be within ±0.5 dB of target."""
 
     @pytest.mark.parametrize("target_snr", [-5.0, 0.0, 5.0, 10.0, 15.0, 20.0])
-    def test_snr_accuracy(self, target_snr: float):
+    def test_snr_accuracy(self, target_snr: float, make_sine, make_noise):
         clean = make_sine(duration_s=3.0)
         noise = make_noise(duration_s=3.0)
 
@@ -62,7 +47,7 @@ class TestSNRAccuracy:
 class TestClippingProtection:
     """No sample in the output should exceed [-0.99, 0.99]."""
 
-    def test_no_clipping_at_low_snr(self):
+    def test_no_clipping_at_low_snr(self, make_sine, make_noise):
         """At −5 dB SNR, noise is loud → must clip-protect."""
         clean = make_sine(duration_s=2.0)
         noise = make_noise(duration_s=2.0) * 5.0  # loud noise
@@ -72,7 +57,7 @@ class TestClippingProtection:
         assert np.max(np.abs(noisy)) <= 1.0, "noisy exceeds [-1, 1]"
         assert np.max(np.abs(clean_out)) <= 1.0, "clean exceeds [-1, 1]"
 
-    def test_same_divisor_invariant(self):
+    def test_same_divisor_invariant(self, make_sine, make_noise):
         """Both clean and noisy must be scaled by the same factor.
 
         Verify by checking that the SNR is preserved even after
@@ -88,7 +73,7 @@ class TestClippingProtection:
         # Even with aggressive clipping, SNR should be preserved
         assert abs(actual_snr - target_snr) < 0.5
 
-    def test_already_quiet_signals(self):
+    def test_already_quiet_signals(self, make_sine, make_noise):
         """Signals well below 1.0 should not be rescaled."""
         clean = make_sine(duration_s=1.0) * 0.1
         noise = make_noise(duration_s=1.0) * 0.01
@@ -102,7 +87,7 @@ class TestClippingProtection:
 class TestImpulsiveMode:
     """Impulsive noise should be placed once, not tiled."""
 
-    def test_impulse_not_tiled(self):
+    def test_impulse_not_tiled(self, make_sine):
         """A short impulse placed in a long buffer should occupy one contiguous region."""
         rng = np.random.default_rng(42)
         target_len = 48000  # 3 seconds at 16kHz
@@ -122,7 +107,7 @@ class TestImpulsiveMode:
             f"Expected {len(impulse)} active samples, got {np.sum(active)}"
         )
 
-    def test_impulse_output_correct_length(self):
+    def test_impulse_output_correct_length(self, make_sine, make_noise):
         """Output must match clean signal length."""
         clean = make_sine(duration_s=2.0)
         impulse = make_noise(duration_s=0.5)
@@ -133,7 +118,7 @@ class TestImpulsiveMode:
 
 
 class TestEdgeCases:
-    def test_silent_clean(self):
+    def test_silent_clean(self, make_noise):
         """Silent clean signal should not produce NaN."""
         clean = np.zeros(16000, dtype=np.float32)
         noise = make_noise(duration_s=1.0)
@@ -143,7 +128,7 @@ class TestEdgeCases:
         assert np.all(np.isfinite(noisy))
         assert np.all(np.isfinite(clean_out))
 
-    def test_silent_noise(self):
+    def test_silent_noise(self, make_sine):
         """Silent noise should not produce NaN."""
         clean = make_sine(duration_s=1.0)
         noise = np.zeros(16000, dtype=np.float32)
@@ -153,7 +138,7 @@ class TestEdgeCases:
         assert np.all(np.isfinite(noisy))
         assert np.all(np.isfinite(clean_out))
 
-    def test_noise_shorter_than_clean(self):
+    def test_noise_shorter_than_clean(self, make_sine, make_noise):
         """Short noise should be looped to match clean length."""
         clean = make_sine(duration_s=3.0)
         noise = make_noise(duration_s=0.5)  # much shorter
@@ -161,7 +146,7 @@ class TestEdgeCases:
         noisy, clean_out = mix_at_snr(clean, noise, 10.0)
         assert len(noisy) == len(clean)
 
-    def test_noise_longer_than_clean(self):
+    def test_noise_longer_than_clean(self, make_sine, make_noise):
         """Long noise should be cropped to match clean length."""
         clean = make_sine(duration_s=1.0)
         noise = make_noise(duration_s=5.0)  # much longer
@@ -171,7 +156,7 @@ class TestEdgeCases:
 
 
 class TestFitNoiseToLength:
-    def test_exact_length(self):
+    def test_exact_length(self, make_noise):
         noise = make_noise(duration_s=1.0)
         result = _fit_noise_to_length(noise, len(noise))
         assert len(result) == len(noise)

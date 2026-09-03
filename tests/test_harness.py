@@ -16,29 +16,10 @@ from sih26052.eval.metrics import si_snr, compute_all_metrics
 from sih26052.eval.alignment import find_delay, align_signals
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
-def make_speech_like(duration_s: float = 2.0, sr: int = 16000, seed: int = 0) -> np.ndarray:
-    """Generate a speech-like signal (modulated noise) for metric tests."""
-    rng = np.random.default_rng(seed)
-    n = int(sr * duration_s)
-    t = np.arange(n, dtype=np.float32) / sr
-    # Mix of tones to simulate speech formants
-    signal = (
-        0.3 * np.sin(2 * np.pi * 200 * t)
-        + 0.2 * np.sin(2 * np.pi * 800 * t)
-        + 0.1 * np.sin(2 * np.pi * 1500 * t)
-        + 0.05 * rng.standard_normal(n).astype(np.float32)
-    ).astype(np.float32)
-    # Amplitude modulation to simulate speech envelope
-    envelope = 0.5 + 0.5 * np.sin(2 * np.pi * 4 * t)
-    return (signal * envelope).astype(np.float32)
-
-
 # ── SI-SNR tests ───────────────────────────────────────────────────────────
 
 class TestSISNR:
-    def test_identical_signals(self):
+    def test_identical_signals(self, make_speech_like):
         """SI-SNR of identical signals should be very high (>80 dB)."""
         signal = make_speech_like()
         snr = si_snr(signal, signal)
@@ -55,7 +36,7 @@ class TestSISNR:
         # (estimate has no projection onto reference)
         assert snr < 5.0, f"Expected low SI-SNR for uncorrelated, got {snr:.1f}"
 
-    def test_known_snr(self):
+    def test_known_snr(self, make_speech_like):
         """Adding noise at known power should give predictable SI-SNR."""
         rng = np.random.default_rng(42)
         ref = make_speech_like(duration_s=3.0)
@@ -65,7 +46,7 @@ class TestSISNR:
         # Noise is very quiet relative to signal, SI-SNR should be high
         assert snr > 20.0, f"Expected SI-SNR > 20 with tiny noise, got {snr:.1f}"
 
-    def test_scale_invariant(self):
+    def test_scale_invariant(self, make_speech_like):
         """SI-SNR should not change if estimate is scaled."""
         ref = make_speech_like()
         rng = np.random.default_rng(42)
@@ -83,7 +64,7 @@ class TestSISNR:
 # ── Alignment tests ───────────────────────────────────────────────────────
 
 class TestAlignment:
-    def test_known_offset_positive(self):
+    def test_known_offset_positive(self, make_speech_like):
         """Detect a known positive delay."""
         ref = make_speech_like(duration_s=3.0)
         delay_samples = 50
@@ -95,7 +76,7 @@ class TestAlignment:
             f"Expected delay ≈ {-delay_samples}, got {detected}"
         )
 
-    def test_known_offset_negative(self):
+    def test_known_offset_negative(self, make_speech_like):
         """Detect a known negative delay (estimate is ahead)."""
         ref = make_speech_like(duration_s=3.0)
         delay_samples = 30
@@ -107,13 +88,13 @@ class TestAlignment:
             f"Expected delay ≈ {delay_samples}, got {detected}"
         )
 
-    def test_no_delay(self):
+    def test_no_delay(self, make_speech_like):
         """No delay should be detected for aligned signals."""
         ref = make_speech_like(duration_s=2.0)
         delay = find_delay(ref, ref.copy())
         assert abs(delay) < 3, f"Expected ~0 delay, got {delay}"
 
-    def test_align_signals_produces_same_length(self):
+    def test_align_signals_produces_same_length(self, make_speech_like):
         """align_signals should return two arrays of the same length."""
         ref = make_speech_like(duration_s=2.0)
         est = np.concatenate([np.zeros(20, dtype=np.float32), ref])
@@ -140,7 +121,7 @@ class TestIdentityGate:
     are suspect because the metric pipeline itself is broken.
     """
 
-    def test_si_snr_identity(self):
+    def test_si_snr_identity(self, make_speech_like):
         """clean→clean should give SI-SNR > 80 dB."""
         signal = make_speech_like(duration_s=3.0)
         result = compute_all_metrics(signal, signal)
@@ -150,7 +131,7 @@ class TestIdentityGate:
         not _pesq_available(),
         reason="pesq library not installed"
     )
-    def test_pesq_identity(self):
+    def test_pesq_identity(self, make_speech_like):
         """clean→clean PESQ should be ≈ 4.5."""
         signal = make_speech_like(duration_s=3.0)
         result = compute_all_metrics(signal, signal)

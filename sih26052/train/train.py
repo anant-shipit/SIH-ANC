@@ -205,6 +205,7 @@ def main():
 
     # Optimizer (AFTER loading pretrained weights)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # Loss
     from sih26052.train.loss import CombinedLoss
@@ -216,9 +217,15 @@ def main():
         clean_dir=args.clean_dir,
         noise_dirs=noise_dirs,
     )
+    
+    def worker_init_fn(worker_id):
+        info = torch.utils.data.get_worker_info()
+        info.dataset.rng = np.random.default_rng((info.seed + worker_id) % (2**32))
+
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size,
         shuffle=True, num_workers=2, pin_memory=True,
+        worker_init_fn=worker_init_fn,
     )
 
     # Validation imports
@@ -232,9 +239,11 @@ def main():
         logger.info("Epoch %d / %d", epoch, args.epochs)
 
         metrics = train(model, train_loader, criterion, optimizer, device, epoch)
+        metrics["lr"] = scheduler.get_last_lr()[0]
         logger.info("Train: %s", json.dumps(metrics, indent=2))
 
         save_checkpoint(model, optimizer, epoch, metrics, args.save_dir)
+        scheduler.step()
 
         if args.val_manifest:
             val_metrics = validate_epoch(model, args.val_manifest, device, epoch)
