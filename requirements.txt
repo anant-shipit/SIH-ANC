@@ -17,8 +17,9 @@ pystoi>=0.3
 onnx>=1.14
 onnxruntime>=1.15
 
-# ── Real-time audio ──
+# ── Real-time audio & hardware ──
 sounddevice>=0.4
+gpiozero>=2.0
 
 # ── Dashboard ──
 fastapi>=0.100
