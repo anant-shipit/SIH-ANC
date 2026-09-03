@@ -62,59 +62,86 @@ def verify_onnx_vs_pytorch(
     logger.info("ONNX inputs: %s", input_names)
     logger.info("ONNX outputs: %s", output_names)
 
-    # ── Generate random test frames ──
-    rng = np.random.default_rng(42)
-    max_diffs = []
+    # ── Set up PyTorch model ──
+    import torch
+    import sys
+    
+    checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+    gtcrn_root = checkpoint_path.parent.parent
+    
+    stream_dir = gtcrn_root / "stream"
+    if stream_dir.exists():
+        sys.path.insert(0, str(stream_dir))
+    sys.path.insert(0, str(gtcrn_root))
+    
+    from gtcrn import GTCRN  # type: ignore
+    model = GTCRN()
+    state_dict = torch.load(str(checkpoint_path), map_location="cpu")
+    if "model_state_dict" in state_dict:
+        state_dict = state_dict["model_state_dict"]
+    elif "state_dict" in state_dict:
+        state_dict = state_dict["state_dict"]
+    elif "model" in state_dict:
+        state_dict = state_dict["model"]
+    model.load_state_dict(state_dict, strict=False)
+    model.eval()
 
-    # Initialize ONNX states with zeros
+    # ── Generate random test sequence ──
+    rng = np.random.default_rng(42)
+    # Shape: (batch=1, freq=257, time=n_frames, complex=2)
+    spec_seq = rng.standard_normal((1, n_freq, n_frames, 2)).astype(np.float32)
+
+    # ── PyTorch full sequence ──
+    with torch.no_grad():
+        pt_out = model(torch.from_numpy(spec_seq)).numpy()
+
+    # ── ONNX frame by frame ──
     onnx_states = {}
     for inp in sess.get_inputs():
         if inp.name != "spec_frame":
             shape = [d if isinstance(d, int) else 1 for d in inp.shape]
             onnx_states[inp.name] = np.zeros(shape, dtype=np.float32)
 
-    for frame_idx in range(n_frames):
-        # Random STFT frame
-        spec = rng.standard_normal((1, n_freq, 1, 2)).astype(np.float32)
-
-        # Run ONNX
-        feed = {"spec_frame": spec}
+    onnx_out_frames = []
+    for t in range(n_frames):
+        spec_frame = spec_seq[:, :, t:t+1, :]
+        feed = {"spec_frame": spec_frame}
         feed.update(onnx_states)
         onnx_outputs = sess.run(output_names, feed)
-
-        # Update ONNX states for next frame
+        
+        onnx_out_frames.append(onnx_outputs[0])
+        
         for i, name in enumerate(output_names):
             if name != "enhanced_frame":
-                # Find corresponding input name
                 state_in_name = name.replace("_out", "")
                 if state_in_name in onnx_states:
                     onnx_states[state_in_name] = onnx_outputs[i]
 
-        # Track the output magnitude (we can't compare to PyTorch without
-        # having the model loaded, but we can at least verify no NaN/Inf)
-        enhanced = onnx_outputs[0]
-        if not np.all(np.isfinite(enhanced)):
-            logger.error("Frame %d: ONNX output contains NaN/Inf!", frame_idx)
-            return {
-                "max_abs_diff": float("inf"),
-                "mean_abs_diff": float("inf"),
-                "passed": False,
-                "n_frames": frame_idx + 1,
-                "error": "NaN/Inf in output",
-            }
+    onnx_out = np.concatenate(onnx_out_frames, axis=2)
 
-    logger.info(
-        "Verified %d frames through ONNX Runtime — all outputs finite",
-        n_frames,
-    )
+    # ── Compare ──
+    diff = np.abs(pt_out - onnx_out)
+    max_diff = float(np.max(diff))
+    mean_diff = float(np.mean(diff))
+
+    if max_diff > tolerance:
+        logger.error(
+            "Verification FAILED: max diff %.2e > tolerance %.2e",
+            max_diff, tolerance,
+        )
+        passed = False
+    else:
+        logger.info(
+            "Verification PASSED: max diff %.2e < tolerance %.2e",
+            max_diff, tolerance,
+        )
+        passed = True
 
     return {
-        "max_abs_diff": 0.0,  # Full comparison needs PyTorch model loaded
-        "mean_abs_diff": 0.0,
-        "passed": True,
+        "max_abs_diff": max_diff,
+        "mean_abs_diff": mean_diff,
+        "passed": passed,
         "n_frames": n_frames,
-        "note": "Verified ONNX outputs are finite. Full PyTorch comparison "
-                "requires the model to be importable.",
     }
 
 

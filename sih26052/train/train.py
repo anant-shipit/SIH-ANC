@@ -72,12 +72,15 @@ def train(
         clean = batch["clean"].to(device)
 
         # ── STFT ──
-        noisy_stft = torch.stft(
-            noisy, nfft, hop, window=window, return_complex=False
-        )  # (B, freq, time, 2)
-        clean_stft = torch.stft(
-            clean, nfft, hop, window=window, return_complex=False
+        noisy_stft_complex = torch.stft(
+            noisy, nfft, hop, window=window, return_complex=True
         )
+        noisy_stft = torch.view_as_real(noisy_stft_complex)  # (B, freq, time, 2)
+        
+        clean_stft_complex = torch.stft(
+            clean, nfft, hop, window=window, return_complex=True
+        )
+        clean_stft = torch.view_as_real(clean_stft_complex)
 
         # ── Forward ──
         pred_stft = model(noisy_stft)
@@ -218,6 +221,11 @@ def main():
         shuffle=True, num_workers=2, pin_memory=True,
     )
 
+    # Validation imports
+    from sih26052.train.validate import validate_epoch, check_catastrophic_forgetting
+
+    val_history = []
+
     # Training loop
     for epoch in range(1, args.epochs + 1):
         logger.info("=" * 60)
@@ -227,6 +235,12 @@ def main():
         logger.info("Train: %s", json.dumps(metrics, indent=2))
 
         save_checkpoint(model, optimizer, epoch, metrics, args.save_dir)
+
+        if args.val_manifest:
+            val_metrics = validate_epoch(model, args.val_manifest, device, epoch)
+            val_history.append(val_metrics)
+            if check_catastrophic_forgetting(val_history):
+                logger.warning("Consider adjusting batch composition")
 
 
 if __name__ == "__main__":

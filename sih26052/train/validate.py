@@ -59,9 +59,10 @@ def validate_epoch(
             noisy_t = torch.from_numpy(noisy_wav).unsqueeze(0).to(device)
 
             # STFT
-            noisy_stft = torch.stft(
-                noisy_t, nfft, hop, window=window, return_complex=False
+            noisy_stft_complex = torch.stft(
+                noisy_t, nfft, hop, window=window, return_complex=True
             )
+            noisy_stft = torch.view_as_real(noisy_stft_complex)
 
             # Enhance
             pred_stft = model(noisy_stft)

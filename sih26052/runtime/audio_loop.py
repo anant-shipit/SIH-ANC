@@ -66,6 +66,7 @@ class AudioLoop:
         nfft: int = 512,
         hop: int = 256,
         queue_size: int = 100,
+        use_impulse_gate: bool = False,
     ):
         from sih26052.runtime.ola import OverlapAdd
         from sih26052.runtime.enhancer import StreamingEnhancer
@@ -81,7 +82,11 @@ class AudioLoop:
         self.ab_switch = ABSwitch(sr=sr)
 
         # ── Impulse gate placeholder (populated in Phase 5) ──
-        self.impulse_gate = None
+        if use_impulse_gate:
+            from sih26052.runtime.impulse_gate import ImpulseGate
+            self.impulse_gate = ImpulseGate(sr=sr, hop=hop)
+        else:
+            self.impulse_gate = None
 
         # ── Metrics queue for dashboard (non-blocking push) ──
         self.metrics_queue: queue.Queue = queue.Queue(maxsize=queue_size)
@@ -226,6 +231,7 @@ def main():
     parser.add_argument("--sr", type=int, default=16000, help="Sample rate")
     parser.add_argument("--hop", type=int, default=256, help="Hop size")
     parser.add_argument("--duration", type=float, default=None, help="Duration (seconds)")
+    parser.add_argument("--impulse-gate", action="store_true", help="Enable the impulse gate")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -235,6 +241,7 @@ def main():
         device=args.device,
         sr=args.sr,
         hop=args.hop,
+        use_impulse_gate=args.impulse_gate,
     )
     loop.run(duration=args.duration)
 

@@ -108,12 +108,32 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    import sys, shutil
-    # We need the GTCRN model factory
+    import sys
+    import shutil
+    
     logger.info("Select best checkpoint from %s", args.checkpoint_dir)
-
-    # For the CLI, we'd import the model. This is a stub.
-    logger.info("Use this module programmatically with a model_factory argument.")
+    
+    checkpoints = list(args.checkpoint_dir.glob("checkpoint_epoch_*.pth"))
+    if not checkpoints:
+        logger.error("No checkpoints found in %s", args.checkpoint_dir)
+        sys.exit(1)
+        
+    gtcrn_root = checkpoints[0].parent.parent.parent
+    sys.path.insert(0, str(gtcrn_root))
+    try:
+        from gtcrn import GTCRN  # type: ignore
+    except ImportError:
+        logger.error("Could not import GTCRN from %s. Is the checkpoint path correct?", gtcrn_root)
+        sys.exit(1)
+        
+    best_path, best_metrics = select_best_checkpoint(
+        args.checkpoint_dir, args.val_manifest, model_factory=GTCRN
+    )
+    
+    if args.output and best_path:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(best_path, args.output)
+        logger.info("Copied best checkpoint to %s", args.output)
 
 
 if __name__ == "__main__":
