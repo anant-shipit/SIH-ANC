@@ -1,8 +1,8 @@
 from .bridge import DashboardBridge
-from .server import app, broadcast_metrics
+from .server import broadcast, create_app
 
 __all__ = [
     "DashboardBridge",
-    "app",
-    "broadcast_metrics",
+    "broadcast",
+    "create_app",
 ]

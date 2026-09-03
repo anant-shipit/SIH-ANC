@@ -1,5 +1,5 @@
-import torch
 import pytest
+torch = pytest.importorskip("torch")
 
 from sih26052.train.loss import SISNRLoss, CompressedSpectralLoss, CombinedLoss
 

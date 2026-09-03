@@ -225,12 +225,13 @@ def verify_quantized_quality(
 
 def main():
     parser = argparse.ArgumentParser(description="Verify ONNX export.")
+    parser.add_argument("--checkpoint", type=Path, required=True, help="PyTorch checkpoint (.pth)")
     parser.add_argument("--onnx", type=Path, required=True, help="ONNX model path")
     parser.add_argument("--frames", type=int, default=100, help="Frames to test")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    result = verify_onnx_vs_pytorch("", args.onnx, args.frames)
+    result = verify_onnx_vs_pytorch(args.checkpoint, args.onnx, args.frames)
     print(f"Result: {result}")
 
 
