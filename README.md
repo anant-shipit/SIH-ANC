@@ -56,7 +56,7 @@ Physical Audio Input (Mic)
 
 | Metric | Target | Achieved / Budgeted |
 |---|---|---|
-| **Total Algorithmic Latency** | ≤ 150 ms | **~80 ms** (32ms STFT window + 16ms hop + 32ms ALSA buffers + ~5ms inference) |
+| **Total Algorithmic Latency** | ≤ 150 ms | **~69 ms** (32ms STFT window + 16ms hop + 16ms ALSA buffers + ~5ms inference) |
 | **Model Size** | Edge-friendly | **~48.2K parameters** (~0.2 MB int8 ONNX) |
 | **Compute / RTF** | RTF < 0.5 on Pi 4B | **33.0 MMACs/s**, tested in real-time |
 | **Speech Quality (clean)** | Identity pass | **PESQ 4.64**, **SI-SNR > 100 dB**, **STOI 1.00** |
@@ -105,7 +105,7 @@ Physical Audio Input (Mic)
 │   ├── eval_baseline.py      # Benchmark baseline audio on test manifest
 │   ├── verify_export.py      # Verify ONNX model validity & quantization
 │   └── benchmark_rtf.py      # Benchmark RTF on current device
-├── tests/                    # 52 unit and integration tests (100% passing)
+├── tests/                    # 59 unit and integration tests (100% passing)
 ├── requirements.txt          # Python dependencies
 ├── setup.py                  # Package installation script
 └── README.md
@@ -118,7 +118,7 @@ Physical Audio Input (Mic)
 ### 1. Clone the repository
 ```bash
 git clone https://github.com/anant-shipit/SIH-ANC.git
-cd SIH--ANC
+cd SIH-ANC
 ```
 
 ### 2. Create virtual environment & install dependencies
@@ -133,7 +133,7 @@ pip install -e .
 
 ## Verification & Testing
 
-Run the full pytest suite (52 tests covering all modules):
+Run the full pytest suite (59 tests covering all modules):
 ```bash
 python3 -m pytest tests/ -v
 ```

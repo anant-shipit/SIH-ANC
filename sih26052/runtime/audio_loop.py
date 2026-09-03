@@ -97,6 +97,7 @@ class AudioLoop:
         self.start_time = 0.0
 
         # ── Preallocated buffers ──
+        self._mono_buffer = np.zeros(hop, dtype=np.float32)
         self._raw_buffer = np.zeros(hop, dtype=np.float32)
         self._enhanced_buffer = np.zeros(hop, dtype=np.float32)
 
@@ -106,6 +107,8 @@ class AudioLoop:
         This runs in a separate high-priority thread.  It MUST NOT
         allocate memory, print, or call any blocking function.
         """
+        frame_start = time.monotonic()
+        
         # ── Track xruns ──
         if status:
             self.xrun_count += 1
@@ -114,7 +117,8 @@ class AudioLoop:
 
         # ── Get mono input ──
         # indata shape: (frames, channels) — take first channel
-        mono_in = indata[:, 0].astype(np.float32)
+        np.copyto(self._mono_buffer, indata[:, 0])
+        mono_in = self._mono_buffer
 
         # ── STFT analysis ──
         spec = self.ola.analyze(mono_in)
@@ -148,6 +152,8 @@ class AudioLoop:
                 "spec_out": enhanced_spec[:, 0].copy(),
                 "xruns": self.xrun_count,
                 "enhanced": self.ab_switch.is_enhanced,
+                "processing_time_ms": (time.monotonic() - frame_start) * 1000,
+                "gate_state": self.impulse_gate.state if self.impulse_gate else "idle",
             }
             self.metrics_queue.put_nowait(metrics)
         except queue.Full:
@@ -232,7 +238,13 @@ def main():
     parser.add_argument("--hop", type=int, default=256, help="Hop size")
     parser.add_argument("--duration", type=float, default=None, help="Duration (seconds)")
     parser.add_argument("--impulse-gate", action="store_true", help="Enable the impulse gate")
+    parser.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
     args = parser.parse_args()
+
+    if args.list_devices:
+        import sounddevice as sd
+        print(sd.query_devices())
+        return
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
