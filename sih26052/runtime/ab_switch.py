@@ -204,7 +204,7 @@ def attach_gpio_button(
     Returns None if gpiozero is not available (e.g. on a laptop).
     """
     try:
-        from gpiozero import Button
+        from gpiozero import Button  # type: ignore
 
         button = Button(gpio_pin, pull_up=True, bounce_time=bounce_time)
         button.when_pressed = lambda: switch.toggle()
