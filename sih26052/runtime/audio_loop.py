@@ -259,7 +259,7 @@ class AudioLoop:
                 
             # Flush the final block (since OLA group delay is 1 hop)
             outdata = np.zeros((self.hop, 2), dtype=np.float32)
-            empty_block = np.zeros((self.hop, block.shape[1]), dtype=np.float32)
+            empty_block = np.zeros((self.hop, sf_in.channels), dtype=np.float32)
             self._callback(empty_block, outdata, self.hop, None, None)
             sf_out.write(outdata)
                 
