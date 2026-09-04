@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 
 def benchmark_rtf(
     onnx_path: str | Path,
-    audio_path: str | Path | None = None,
     duration_s: float = 60.0,
     sr: int = 16000,
     nfft: int = 512,
@@ -41,6 +40,8 @@ def benchmark_rtf(
     n_runs: int = 3,
     warmup: bool = True,
     num_threads: int = 1,
+    *,
+    audio_path: str | Path | None = None,
 ) -> dict:
     """Measure the Real-Time Factor of an ONNX model.
 

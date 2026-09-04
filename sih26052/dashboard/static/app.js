@@ -141,9 +141,11 @@ function updateDashboard(data) {
     }
 
     // Latency and Compute Budget
+    if (data.latency_ms !== undefined) {
+        latencyValue.textContent = data.latency_ms.toFixed(1);
+    }
+    
     if (data.processing_time_ms !== undefined) {
-        latencyValue.textContent = data.processing_time_ms.toFixed(1);
-        
         // Update compute gauge (scale to 20ms max, 16ms is 80%)
         const computeVal = data.processing_time_ms;
         const computeValEl = document.getElementById('compute-val');

@@ -44,6 +44,9 @@ jobs:
         quantize_dynamic_int8(onnx_path, 'test_stub_int8.onnx')
         
         print('Verifying export...')
-        verify_onnx_vs_pytorch(onnx_path='test_stub.onnx', model_factory=create_stub_model)
+        res = verify_onnx_vs_pytorch(onnx_path='test_stub_int8.onnx', model_factory=create_stub_model, tolerance=0.1)
+        if not res['passed']:
+            import sys
+            sys.exit(f"Verification failed: {res}")
         print('Pipeline check passed.')
         "

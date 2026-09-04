@@ -240,7 +240,8 @@ class AudioLoop:
         
         info = sf.info(str(input_path))
         if info.samplerate != self.sr:
-            logger.warning("Input SR %d != configured SR %d", info.samplerate, self.sr)
+            logger.error("Input SR %d != configured SR %d. Resampling not supported.", info.samplerate, self.sr)
+            return
             
         with sf.SoundFile(str(input_path)) as sf_in, \
              sf.SoundFile(str(output_path), 'w', samplerate=self.sr, channels=2, subtype='FLOAT') as sf_out:
@@ -255,6 +256,12 @@ class AudioLoop:
                 
                 self._callback(block, outdata, self.hop, None, None)
                 sf_out.write(outdata)
+                
+            # Flush the final block (since OLA group delay is 1 hop)
+            outdata = np.zeros((self.hop, 2), dtype=np.float32)
+            empty_block = np.zeros((self.hop, block.shape[1]), dtype=np.float32)
+            self._callback(empty_block, outdata, self.hop, None, None)
+            sf_out.write(outdata)
                 
         elapsed = time.monotonic() - self.start_time
         logger.info(

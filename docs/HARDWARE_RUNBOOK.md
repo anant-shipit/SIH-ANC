@@ -13,7 +13,7 @@ Standard processes run under `SCHED_OTHER` which optimizes for overall throughpu
 **Action:**
 Run the audio script with `chrt`. Priority 50 is generally sufficient:
 ```bash
-sudo chrt -f 50 python -m sih26052.runtime.audio_loop --mode enhanced
+sudo chrt -f 50 python -m sih26052.runtime.audio_loop
 ```
 *Note: Because `SCHED_FIFO` can lock up your system if the process enters an infinite loop without yielding, we strongly recommend deploying this only on a dedicated hardware unit or running it cautiously during development.*
 
@@ -26,7 +26,7 @@ You must pin the audio thread to a specific, dedicated core. On a Raspberry Pi 4
 **Action:**
 Combine `taskset` (CPU pinning) with `chrt` (Real-time scheduling). To pin the process exclusively to Core 3:
 ```bash
-sudo taskset -c 3 chrt -f 50 python -m sih26052.runtime.audio_loop --mode enhanced
+sudo taskset -c 3 chrt -f 50 python -m sih26052.runtime.audio_loop
 ```
 
 ## 3. Disable CPU Frequency Scaling (Governor)
