@@ -148,4 +148,5 @@ class TestProperties:
 
     def test_latency_samples(self):
         ola = OverlapAdd(nfft=512, hop=256)
-        assert ola.latency_samples == 512
+        assert ola.latency_samples == 256
+        assert ola.latency_ms(sr=16000) == 16.0

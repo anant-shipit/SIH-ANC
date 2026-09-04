@@ -36,6 +36,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Callable, Any
 
 import numpy as np
 
@@ -43,10 +44,11 @@ logger = logging.getLogger(__name__)
 
 
 def export_streaming_onnx(
-    checkpoint_path: str | Path,
-    output_path: str | Path,
+    checkpoint_path: str | Path | None = None,
+    output_path: str | Path = "model.onnx",
     opset_version: int = 17,
     nfft: int = 512,
+    model_factory: Callable[[], Any] | None = None,
 ) -> Path:
     """Export a pretrained GTCRN model to streaming ONNX.
 
@@ -56,6 +58,7 @@ def export_streaming_onnx(
     output_path     : where to write the .onnx file
     opset_version   : ONNX opset (default 17)
     nfft            : FFT size used by GTCRN (512 for 16 kHz)
+    model_factory   : Optional callable to return an instantiated model
 
     Returns
     -------
@@ -70,48 +73,56 @@ def export_streaming_onnx(
     import torch
     import torch.nn as nn
 
-    output_path = Path(output_path)
+    output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Load model ──
-    # We need to import the GTCRN architecture.  The model definition
-    # lives in the gtcrn repo.  We add it to sys.path temporarily.
-    checkpoint_path = Path(checkpoint_path).expanduser().resolve()
-    gtcrn_root = checkpoint_path.parent.parent  # e.g. ~/Downloads/gtcrn/
+    if model_factory is not None:
+        logger.info("Using provided model_factory...")
+        model = model_factory()
+    else:
+        if checkpoint_path is None:
+            raise ValueError("Must provide either model_factory or checkpoint_path")
 
-    # Try importing from the gtcrn repo's stream/ directory
-    stream_dir = gtcrn_root / "stream"
-    if stream_dir.exists():
-        sys.path.insert(0, str(stream_dir))
-        logger.info("Added %s to sys.path for GTCRN streaming model", stream_dir)
+        # We need to import the GTCRN architecture.  The model definition
+        # lives in the gtcrn repo.  We add it to sys.path temporarily.
+        checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+        gtcrn_root = checkpoint_path.parent.parent  # e.g. ~/Downloads/gtcrn/
 
-    # Also add the repo root for non-streaming model
-    sys.path.insert(0, str(gtcrn_root))
+        # Try importing from the gtcrn repo's stream/ directory
+        stream_dir = gtcrn_root / "stream"
+        if stream_dir.exists():
+            sys.path.insert(0, str(stream_dir))
+            logger.info("Added %s to sys.path for GTCRN streaming model", stream_dir)
 
-    try:
-        # Try stream variant first (preferred for export)
-        from gtcrn import GTCRN  # type: ignore
-        logger.info("Loaded GTCRN model class from %s", gtcrn_root)
-    except ImportError as exc:
-        logger.error(
-            "Could not import GTCRN model. Ensure ~/Downloads/gtcrn/ exists "
-            "and contains gtcrn.py or stream/gtcrn.py. Error: %s", exc
-        )
-        raise
+        # Also add the repo root for non-streaming model
+        sys.path.insert(0, str(gtcrn_root))
 
-    # ── Instantiate and load weights ──
-    model = GTCRN()
-    state_dict = torch.load(str(checkpoint_path), map_location="cpu")
+        try:
+            # Try stream variant first (preferred for export)
+            from gtcrn import GTCRN  # type: ignore
+            logger.info("Loaded GTCRN model class from %s", gtcrn_root)
+        except ImportError as exc:
+            logger.error(
+                "Could not import GTCRN model. Ensure ~/Downloads/gtcrn/ exists "
+                "and contains gtcrn.py or stream/gtcrn.py. Error: %s", exc
+            )
+            raise
 
-    # Handle different checkpoint formats
-    if "model_state_dict" in state_dict:
-        state_dict = state_dict["model_state_dict"]
-    elif "state_dict" in state_dict:
-        state_dict = state_dict["state_dict"]
-    elif "model" in state_dict:
-        state_dict = state_dict["model"]
+        # ── Instantiate and load weights ──
+        model = GTCRN()
+        state_dict = torch.load(str(checkpoint_path), map_location="cpu")
 
-    model.load_state_dict(state_dict, strict=False)
+        # Handle different checkpoint formats
+        if "model_state_dict" in state_dict:
+            state_dict = state_dict["model_state_dict"]
+        elif "state_dict" in state_dict:
+            state_dict = state_dict["state_dict"]
+        elif "model" in state_dict:
+            state_dict = state_dict["model"]
+
+        model.load_state_dict(state_dict, strict=False)
+
     model.eval()
 
     n_freq = nfft // 2 + 1  # 257 for nfft=512

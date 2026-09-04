@@ -191,6 +191,95 @@ body {
     color: var(--accent-yellow);
 }
 
+/* ── Budget Section ──────────────────────────────────────────────────────── */
+
+.budget-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 0 2rem 1.5rem 2rem;
+}
+
+.budget-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.budget-container h2 {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+.gauge-bar-container {
+    position: relative;
+    height: 24px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--border-color);
+}
+
+.gauge-bar {
+    height: 100%;
+    background: var(--accent-green);
+    width: 0%;
+    transition: width 0.1s, background-color 0.1s;
+}
+
+.gauge-redline {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 80%; /* 16ms out of 20ms scale */
+    width: 2px;
+    background: var(--accent-red);
+    z-index: 10;
+    box-shadow: 0 0 5px var(--accent-red);
+}
+
+.gauge-label {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    text-align: right;
+}
+
+#compute-val {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.static-budget-list {
+    list-style: none;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.static-budget-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0;
+    border-bottom: 1px dashed var(--border-color);
+}
+
+.static-budget-list li:last-child {
+    border-bottom: none;
+}
+
+.total-budget {
+    font-weight: bold;
+    color: var(--accent-yellow);
+    margin-top: 0.5rem;
+    border-top: 1px solid var(--border-color) !important;
+    padding-top: 0.5rem !important;
+}
+
 /* ── Spectrograms ──────────────────────────────────────────────────────── */
 
 .spectrogram-section {

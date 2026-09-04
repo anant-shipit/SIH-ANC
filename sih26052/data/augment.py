@@ -162,8 +162,6 @@ class AugmentPipeline:
     ----------
     prob : float
         Independent probability of applying each augmentation.
-    seed : int | None
-        RNG seed for reproducibility.
     enable_reverb : bool
         Whether to include reverb (expensive, can be disabled for speed).
     """
@@ -171,11 +169,9 @@ class AugmentPipeline:
     def __init__(
         self,
         prob: float = 0.5,
-        seed: int | None = None,
         enable_reverb: bool = True,
     ):
         self.prob = prob
-        self.rng = np.random.default_rng(seed)
         self.enable_reverb = enable_reverb
 
         # Build the augmentation list.  Order matters slightly:
@@ -190,17 +186,24 @@ class AugmentPipeline:
                 ("reverb", lambda a, r, sr: add_reverb(a, r, sr)),
             )
 
-    def __call__(self, audio: np.ndarray, sr: int = 16000) -> np.ndarray:
+    def __call__(self, audio: np.ndarray, sr: int = 16000, rng: np.random.Generator | None = None) -> np.ndarray:
         """Apply random augmentations to *audio*.
+
+        Parameters
+        ----------
+        audio : input waveform
+        sr : sample rate
+        rng : optional random generator. If not provided, a default one is used.
 
         Returns the augmented waveform (same length, float32).
         """
+        rng = rng or np.random.default_rng()
         out = audio.astype(np.float32, copy=True)
         applied = []
 
         for name, fn in self._augmentations:
-            if self.rng.random() < self.prob:
-                out = fn(out, self.rng, sr)
+            if rng.random() < self.prob:
+                out = fn(out, rng, sr)
                 applied.append(name)
 
         if applied:

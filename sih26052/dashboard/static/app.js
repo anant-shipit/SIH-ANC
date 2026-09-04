@@ -140,9 +140,31 @@ function updateDashboard(data) {
         transientText.textContent = data.gate_state.toUpperCase();
     }
 
-    // Latency
-    if (data.latency_ms !== undefined) {
-        latencyValue.textContent = data.latency_ms.toFixed(1);
+    // Latency and Compute Budget
+    if (data.processing_time_ms !== undefined) {
+        latencyValue.textContent = data.processing_time_ms.toFixed(1);
+        
+        // Update compute gauge (scale to 20ms max, 16ms is 80%)
+        const computeVal = data.processing_time_ms;
+        const computeValEl = document.getElementById('compute-val');
+        if (computeValEl) {
+            computeValEl.textContent = computeVal.toFixed(1);
+        }
+        
+        const gauge = document.getElementById('compute-gauge');
+        if (gauge) {
+            let pct = (computeVal / 20.0) * 100;
+            pct = Math.min(100, Math.max(0, pct));
+            gauge.style.width = pct + '%';
+            
+            if (computeVal > 16.0) {
+                gauge.style.backgroundColor = 'var(--accent-red)';
+            } else if (computeVal > 12.0) {
+                gauge.style.backgroundColor = 'var(--accent-yellow)';
+            } else {
+                gauge.style.backgroundColor = 'var(--accent-green)';
+            }
+        }
     }
 
     // Spectrograms

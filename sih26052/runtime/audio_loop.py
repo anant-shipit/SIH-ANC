@@ -99,6 +99,7 @@ class AudioLoop:
         # ── Preallocated buffers ──
         self._mono_buffer = np.zeros(hop, dtype=np.float32)
         self._raw_buffer = np.zeros(hop, dtype=np.float32)
+        self._prev_mono_buffer = np.zeros(hop, dtype=np.float32)
         self._enhanced_buffer = np.zeros(hop, dtype=np.float32)
 
     def _callback(self, indata, outdata, frames, time_info, status):
@@ -127,7 +128,10 @@ class AudioLoop:
         enhanced_spec = self.enhancer.process_frame(spec)
 
         # ── ISTFT synthesis ──
-        self._raw_buffer[:] = mono_in[:self.hop]
+        # Delay raw audio by 1 hop to phase-align with OLA latency
+        self._raw_buffer[:] = self._prev_mono_buffer
+        self._prev_mono_buffer[:] = mono_in[:self.hop]
+        
         self._enhanced_buffer[:] = self.ola.synthesize(enhanced_spec)
 
         # ── Impulse gate (Phase 5 — no-op if not set) ──
@@ -227,6 +231,37 @@ class AudioLoop:
             self.frame_count, self.xrun_count, elapsed,
         )
 
+    def run_offline(self, input_path: str | Path, output_path: str | Path) -> None:
+        """Run the exact callback pipeline offline using soundfile."""
+        import soundfile as sf
+        
+        logger.info("Starting offline processing: %s -> %s", input_path, output_path)
+        self.start_time = time.monotonic()
+        
+        info = sf.info(str(input_path))
+        if info.samplerate != self.sr:
+            logger.warning("Input SR %d != configured SR %d", info.samplerate, self.sr)
+            
+        with sf.SoundFile(str(input_path)) as sf_in, \
+             sf.SoundFile(str(output_path), 'w', samplerate=self.sr, channels=2, subtype='FLOAT') as sf_out:
+            
+            for block in sf_in.blocks(blocksize=self.hop, dtype='float32', fill_value=0.0):
+                # block is exactly (hop, channels) due to fill_value=0.0 padding
+                if block.ndim == 1:
+                    block = block.reshape(-1, 1)
+                
+                # Create fake outdata
+                outdata = np.zeros((self.hop, 2), dtype=np.float32)
+                
+                self._callback(block, outdata, self.hop, None, None)
+                sf_out.write(outdata)
+                
+        elapsed = time.monotonic() - self.start_time
+        logger.info(
+            "Offline processing complete. %d frames processed in %.1fs (%.2fx real-time).",
+            self.frame_count, elapsed, (self.frame_count * self.hop / self.sr) / elapsed
+        )
+
 
 # ── CLI ────────────────────────────────────────────────────────────────────
 
@@ -239,6 +274,8 @@ def main():
     parser.add_argument("--duration", type=float, default=None, help="Duration (seconds)")
     parser.add_argument("--impulse-gate", action="store_true", help="Enable the impulse gate")
     parser.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
+    parser.add_argument("--input-file", type=Path, default=None, help="Process a WAV file offline instead of using sounddevice")
+    parser.add_argument("--output-file", type=Path, default=None, help="Output WAV file path for offline processing")
     args = parser.parse_args()
 
     if args.list_devices:
@@ -255,7 +292,14 @@ def main():
         hop=args.hop,
         use_impulse_gate=args.impulse_gate,
     )
-    loop.run(duration=args.duration)
+    
+    if args.input_file and args.output_file:
+        loop.run_offline(args.input_file, args.output_file)
+    elif args.input_file or args.output_file:
+        logger.error("Both --input-file and --output-file must be provided for offline mode.")
+        sys.exit(1)
+    else:
+        loop.run(duration=args.duration)
 
 
 if __name__ == "__main__":

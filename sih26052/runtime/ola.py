@@ -127,10 +127,13 @@ class OverlapAdd:
 
     @property
     def latency_samples(self) -> int:
-        """Algorithmic latency in samples (excludes ALSA buffers)."""
-        return self.nfft  # one full window must fill before first output
+        """Algorithmic group delay in samples.
+        
+        Note: The fill latency (samples before the first valid output) is `nfft`, 
+        but the steady-state group delay (where an input at block k emerges) is exactly `hop`.
+        """
+        return self.hop
 
-    @property
     def latency_ms(self, sr: int = 16000) -> float:
-        """Algorithmic latency in milliseconds."""
+        """Algorithmic group delay in milliseconds."""
         return self.latency_samples / sr * 1000
