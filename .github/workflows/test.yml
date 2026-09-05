@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GPIOZERO_PIN_FACTORY: mock
     steps:
     - uses: actions/checkout@v3
     
