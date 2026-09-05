@@ -11,35 +11,36 @@ Developed for Smart India Hackathon (SIH 2026) / DRDO defense communications cha
 ```
 Physical Audio Input (Mic)
          │
-         ▼
-┌─────────────────────────────────┐
-│ Overlap-Add Engine (ola.py)     │  512-pt FFT, 256-pt hop (16 ms)
-│ sqrt-Hann Analysis Window       │  COLA-compliant 50% overlap
-└─────────────────────────────────┘
-         │ STFT Frame (257, 2)
-         ▼
-┌─────────────────────────────────┐
-│ Streaming GTCRN (enhancer.py)   │  Quantized dynamic int8 ONNX
-│ Recurrent Hidden State Caches   │  ~48.2K params, < 0.5 RTF on Pi 4B
-└─────────────────────────────────┘
-         │ Enhanced Frame (257, 2)
-         ▼
-┌─────────────────────────────────┐
-│ Overlap-Add Engine (ola.py)     │  sqrt-Hann Synthesis Window
-│ ISTFT Reconstruction            │
-└─────────────────────────────────┘
-         │ Enhanced Audio Samples
-         ▼
-┌─────────────────────────────────┐
-│ Impulse Gate (impulse_gate.py)  │  Transient detector + hold-and-release
-│ Transient Attenuator            │  Suppresses gunshots / weapon blasts
-└─────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────┐
-│ A/B Switch (ab_switch.py)       │  Hardware GPIO / Keyboard toggle
-│ 20 ms Smooth Crossfade          │  Instant A/B bypass without clicks
-└─────────────────────────────────┘
+         ├────────────────────────────────────────┐
+         ▼                                        │
+┌─────────────────────────────────┐               │
+│ Overlap-Add Engine (ola.py)     │  512-pt FFT   │
+│ sqrt-Hann Analysis Window       │  256-pt hop   │
+└─────────────────────────────────┘               │
+         │ STFT Frame (257, 2)                    │
+         ▼                                        ▼
+┌─────────────────────────────────┐    ┌───────────────────────────────┐
+│ Streaming GTCRN (enhancer.py)   │    │ 1-Hop Delay Buffer (16 ms)    │
+│ Recurrent Hidden State Caches   │    │ Aligns raw path to group delay│
+└─────────────────────────────────┘    └───────────────────────────────┘
+         │ Enhanced Frame (257, 2)                │
+         ▼                                        │
+┌─────────────────────────────────┐               │
+│ Overlap-Add Engine (ola.py)     │               │
+│ ISTFT Reconstruction            │               │
+└─────────────────────────────────┘               │
+         │ Enhanced Audio Samples                 │ Raw Audio Samples
+         ▼                                        │
+┌─────────────────────────────────┐               │
+│ Impulse Gate (impulse_gate.py)  │               │
+│ Transient Attenuator            │               │
+└─────────────────────────────────┘               │
+         │                                        │
+         ▼                                        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ A/B Switch (ab_switch.py)       │ Hardware GPIO / Keyboard      │
+│ 20 ms Smooth Crossfade          │ Instant bypass without clicks │
+└─────────────────────────────────────────────────────────────────┘
          │
          ├──────────────────────────► Live Audio Output (Headphones / Radio)
          │
@@ -56,7 +57,7 @@ Physical Audio Input (Mic)
 
 | Metric | Target | Achieved / Budgeted |
 |---|---|---|
-| **Total Algorithmic Latency** | ≤ 150 ms | **~69 ms** (32ms STFT window + 16ms hop + 16ms ALSA buffers + ~5ms inference) |
+| **Total Algorithmic Latency** | ≤ 150 ms | **~37 ms** (16ms OLA group delay + 16ms ALSA buffers + ~5ms inference) |
 | **Model Size** | Edge-friendly | **~48.2K parameters** (~0.2 MB int8 ONNX) |
 | **Compute / RTF** | RTF < 0.5 on Pi 4B | **33.0 MMACs/s**, tested in real-time |
 | **Speech Quality (clean)** | Identity pass | **PESQ 4.64**, **SI-SNR > 100 dB**, **STOI 1.00** |
