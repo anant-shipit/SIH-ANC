@@ -4,7 +4,38 @@ This runbook outlines the required system configuration to achieve real-time, ze
 
 Audio processing on Linux is highly sensitive to OS scheduling jitter. A 16ms audio budget means missing a single thread wake-up by 2-3ms will cause an xrun (buffer underrun) resulting in audible clicking. To achieve reliable streaming, you must bypass the standard Linux completely fair scheduler (CFS) for the audio thread.
 
-## 1. Real-Time Scheduling (`SCHED_FIFO`)
+## 1. Deployment Pipeline (Mac → Pi)
+
+Before tuning the OS, you must package your trained model and deploy it to the Pi. The Pi **should not** have PyTorch installed; it only needs ONNX Runtime.
+
+### Step 1: Export & Quantize (On Training Machine)
+Convert your best `.pth` checkpoint to a streaming ONNX graph, then quantize it to INT8. This shrinks the model to ~0.2 MB and makes it fast enough for the Pi's CPU.
+```bash
+# Export
+python -m sih26052.export.to_onnx \
+    --checkpoint models/checkpoints/checkpoint_epoch_050.pth \
+    --output models/gtcrn_stream.onnx
+
+# Quantize
+python -m sih26052.export.quantize \
+    --input models/gtcrn_stream.onnx \
+    --output models/gtcrn_stream_int8.onnx
+```
+
+### Step 2: Transfer (To Pi)
+Copy the `SIH--ANC` repository and your new `models/gtcrn_stream_int8.onnx` file to the Raspberry Pi. You do **not** need to copy the datasets or `.pth` files.
+
+### Step 3: Setup Environment (On Pi)
+Install the lightweight Pi-specific dependencies (which include `onnxruntime` instead of `torch`).
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements-pi.txt
+```
+
+---
+
+## 2. Real-Time Scheduling (`SCHED_FIFO`)
 
 Standard processes run under `SCHED_OTHER` which optimizes for overall throughput, not latency. You must elevate the audio loop script to `SCHED_FIFO`.
 
@@ -17,7 +48,7 @@ sudo chrt -f 50 python -m sih26052.runtime.audio_loop
 ```
 *Note: Because `SCHED_FIFO` can lock up your system if the process enters an infinite loop without yielding, we strongly recommend deploying this only on a dedicated hardware unit or running it cautiously during development.*
 
-## 2. CPU Affinity (`taskset`)
+## 3. CPU Affinity (`taskset`)
 
 Even with `SCHED_FIFO`, the kernel might migrate the audio thread between CPU cores to balance thermal loads. Thread migration causes L1/L2 cache invalidation, inducing severe multi-millisecond latency spikes that easily cause xruns.
 
@@ -29,7 +60,7 @@ Combine `taskset` (CPU pinning) with `chrt` (Real-time scheduling). To pin the p
 sudo taskset -c 3 chrt -f 50 python -m sih26052.runtime.audio_loop
 ```
 
-## 3. Disable CPU Frequency Scaling (Governor)
+## 4. Disable CPU Frequency Scaling (Governor)
 
 The default CPU frequency governor (`ondemand` or `powersave`) aggressively downclocks the CPU during idle moments. When an audio frame arrives, the CPU takes several milliseconds to ramp up its clock speed—often missing the 16ms deadline.
 
@@ -41,12 +72,12 @@ Apply the performance governor to all cores:
 echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 ```
 
-## 4. Benchmarking the Setup
+## 5. Benchmarking the Setup
 
 Before running live audio, use the offline benchmarking tool to verify the algorithmic capability of your hardware.
 
 ```bash
-python -m sih26052.export.benchmark --onnx models/gtcrn_stream.onnx --audio
+python -m sih26052.export.benchmark --onnx models/gtcrn_stream_int8.onnx --audio
 ```
 
 **What to look for:**
