@@ -47,7 +47,7 @@ class StreamingEnhancer:
         self.n_freq = n_freq
 
         # ── Create session ──
-        # Use only CPU provider — no CUDA on Pi 4B
+        # Use only CPU provider — no CUDA on Pi 5
         sess_opts = ort.SessionOptions()
         sess_opts.intra_op_num_threads = 1  # single thread — predictable latency
         sess_opts.inter_op_num_threads = 1

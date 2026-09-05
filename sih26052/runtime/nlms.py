@@ -17,7 +17,7 @@ Why NLMS instead of RLS or Kalman?
     - NLMS is simpler, lighter, and converges within a few hundred ms
       for broadband noise — good enough for our use case.
     - RLS is faster to converge but heavier (matrix inversions).
-    - On a Pi 4B, per-sample coefficient updates must be cheap.
+    - On a Pi 5, per-sample coefficient updates must be cheap.
 
 IMPORTANT:
     This entire module is DROPPED if no dual-mic HAT is available.

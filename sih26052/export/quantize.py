@@ -2,7 +2,7 @@
 quantize.py — Dynamic int8 quantization for ONNX models.
 
 Why int8?
-    The Pi 4B's Cortex-A72 has no neural accelerator.  int8 ops are
+    The Pi 5's Cortex-A76 has no neural accelerator.  int8 ops are
     ~2× faster than float32 on ARM NEON (because you fit 4× as many
     values in the same SIMD register and the multiplies are cheaper).
 

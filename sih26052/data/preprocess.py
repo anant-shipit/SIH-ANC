@@ -3,7 +3,7 @@ preprocess.py — Walk dataset directories, resample everything to 16 kHz mono, 
 
 Why 16 kHz?
     GTCRN's STFT uses a 512-point FFT at 16 kHz ⇒ Nyquist at 8 kHz, which
-    covers the full speech band.  Higher rates waste compute on the Pi 4B.
+    covers the full speech band.  Higher rates waste compute on the Pi 5.
 
 Why mono?
     GTCRN processes single-channel spectrograms.  Stereo files get averaged

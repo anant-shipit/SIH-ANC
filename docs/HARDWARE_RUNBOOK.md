@@ -1,6 +1,6 @@
 # GTCRN Hardware Runbook
 
-This runbook outlines the required system configuration to achieve real-time, zero-xrun performance for GTCRN on constrained edge devices like the Raspberry Pi 4B. 
+This runbook outlines the required system configuration to achieve real-time, zero-xrun performance for GTCRN on constrained edge devices like the Raspberry Pi 5. 
 
 Audio processing on Linux is highly sensitive to OS scheduling jitter. A 16ms audio budget means missing a single thread wake-up by 2-3ms will cause an xrun (buffer underrun) resulting in audible clicking. To achieve reliable streaming, you must bypass the standard Linux completely fair scheduler (CFS) for the audio thread.
 
@@ -52,7 +52,7 @@ sudo chrt -f 50 python -m sih26052.runtime.audio_loop
 
 Even with `SCHED_FIFO`, the kernel might migrate the audio thread between CPU cores to balance thermal loads. Thread migration causes L1/L2 cache invalidation, inducing severe multi-millisecond latency spikes that easily cause xruns.
 
-You must pin the audio thread to a specific, dedicated core. On a Raspberry Pi 4B, cores 2 and 3 are typically best to isolate from OS background tasks (which often default to core 0).
+You must pin the audio thread to a specific, dedicated core. On a Raspberry Pi 5, cores 2 and 3 are typically best to isolate from OS background tasks (which often default to core 0).
 
 **Action:**
 Combine `taskset` (CPU pinning) with `chrt` (Real-time scheduling). To pin the process exclusively to Core 3:

@@ -1,6 +1,6 @@
 # SIH26052 — Real-Time Speech Enhancement for Defense Environments
 
-Real-time speech enhancement using **GTCRN (Grouped Temporal Convolutional Recurrent Network)** deployed on **Raspberry Pi 4B** (ARM Cortex-A72).
+Real-time speech enhancement using **GTCRN (Grouped Temporal Convolutional Recurrent Network)** deployed on **Raspberry Pi 5** (ARM Cortex-A76).
 
 Developed for Smart India Hackathon (SIH 2026) / DRDO defense communications challenge.
 
@@ -59,9 +59,9 @@ Physical Audio Input (Mic)
 |---|---|---|
 | **Total Algorithmic Latency** | ≤ 150 ms | **~37 ms** (16ms OLA group delay + 16ms ALSA buffers + ~5ms inference) |
 | **Model Size** | Edge-friendly | **~48.2K parameters** (~0.2 MB int8 ONNX) |
-| **Compute / RTF** | RTF < 0.5 on Pi 4B | **33.0 MMACs/s**, tested in real-time |
+| **Compute / RTF** | RTF < 0.5 on Pi 5 | **33.0 MMACs/s**, tested in real-time |
 | **Speech Quality (clean)** | Identity pass | **PESQ 4.64**, **SI-SNR > 100 dB**, **STOI 1.00** |
-| **Hardware Target** | Low-cost edge board | **Raspberry Pi 4B (4GB)**, 64-bit OS |
+| **Hardware Target** | Low-cost edge board | **Raspberry Pi 5**, 64-bit OS |
 
 ---
 

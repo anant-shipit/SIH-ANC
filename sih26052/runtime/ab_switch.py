@@ -6,7 +6,7 @@ crossfade to prevent audible clicks/pops at the transition.
 
 The switch is controlled by:
     1. GPIO button (primary) — gpiozero Button on GPIO 17
-       (ReSpeaker HAT user button).  Works on Pi 4B and Pi 5.
+       (ReSpeaker HAT user button).  Works on Pi 5.
     2. Keyboard fallback — spacebar when running on a laptop
 
 Pi 5 migration note:
@@ -198,7 +198,7 @@ def attach_gpio_button(
     """Wire a physical button to the A/B switch via gpiozero.
 
     GPIO 17 is the ReSpeaker HAT's user button.
-    Uses gpiozero (works on both Pi 4B and Pi 5).
+    Uses gpiozero (works on Pi 5).
     Returns the Button object so the caller can hold a reference
     (preventing garbage collection of the callback).
     Returns None if gpiozero is not available (e.g. on a laptop).

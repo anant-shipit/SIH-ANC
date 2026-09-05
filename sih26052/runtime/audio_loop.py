@@ -181,7 +181,7 @@ class AudioLoop:
         # ── Open stream ──
         # latency=0.016 (16ms) works on Pi 5.  If xruns climb over a
         # 10-minute run, step back to 0.032.  This is the ~16ms saving
-        # vs Pi 4B — measure it, don't assume it.
+        # vs earlier Pi generations — measure it, don't assume it.
         stream = sd.Stream(
             device=self.device,
             samplerate=self.sr,
