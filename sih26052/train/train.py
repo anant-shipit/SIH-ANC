@@ -40,6 +40,9 @@ from torch.utils.data import DataLoader
 
 logger = logging.getLogger(__name__)
 
+def _worker_init_fn(worker_id):
+    info = torch.utils.data.get_worker_info()
+    info.dataset.rng = np.random.default_rng((info.seed + worker_id) % (2**32))
 
 def train(
     model: nn.Module,
@@ -214,18 +217,14 @@ def main():
     # Dataset
     from sih26052.train.dataset import SpeechEnhancementDataset
     train_dataset = SpeechEnhancementDataset(
-        clean_dir=args.clean_dir,
-        noise_dirs=noise_dirs,
+        clean_dir=args.clean_dir.expanduser().resolve(),
+        noise_dirs={k: Path(v).expanduser().resolve() for k, v in noise_dirs.items()},
     )
     
-    def worker_init_fn(worker_id):
-        info = torch.utils.data.get_worker_info()
-        info.dataset.rng = np.random.default_rng((info.seed + worker_id) % (2**32))
-
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size,
         shuffle=True, num_workers=2, pin_memory=True,
-        worker_init_fn=worker_init_fn,
+        worker_init_fn=_worker_init_fn,
     )
 
     # Validation imports
