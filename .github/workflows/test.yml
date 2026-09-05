@@ -28,3 +28,25 @@ jobs:
     - name: Run tests
       run: |
         python -m pytest tests/ -v --cov=sih26052
+
+    - name: Test Export Pipeline (with Stub Model)
+      run: |
+        python -c "
+        from sih26052.export.to_onnx import export_streaming_onnx
+        from sih26052.export.quantize import quantize_dynamic_int8
+        from sih26052.export.verify import verify_onnx_vs_pytorch
+        from tests._stub_model import create_stub_model
+
+        print('Exporting stub model...')
+        onnx_path = export_streaming_onnx(output_path='test_stub.onnx', model_factory=create_stub_model)
+        
+        print('Quantizing stub model...')
+        quantize_dynamic_int8(onnx_path, 'test_stub_int8.onnx')
+        
+        print('Verifying export...')
+        res = verify_onnx_vs_pytorch(onnx_path='test_stub_int8.onnx', model_factory=create_stub_model, tolerance=0.1)
+        if not res['passed']:
+            import sys
+            sys.exit(f"Verification failed: {res}")
+        print('Pipeline check passed.')
+        "

@@ -118,8 +118,13 @@ def main():
         logger.error("No checkpoints found in %s", args.checkpoint_dir)
         sys.exit(1)
         
-    gtcrn_root = checkpoints[0].parent.parent.parent
+    gtcrn_root = checkpoints[0].parent.parent
+    
+    stream_dir = gtcrn_root / "stream"
+    if stream_dir.exists():
+        sys.path.insert(0, str(stream_dir))
     sys.path.insert(0, str(gtcrn_root))
+    
     try:
         from gtcrn import GTCRN  # type: ignore
     except ImportError:

@@ -40,6 +40,8 @@ def benchmark_rtf(
     n_runs: int = 3,
     warmup: bool = True,
     num_threads: int = 1,
+    *,
+    audio_path: str | Path | None = None,
 ) -> dict:
     """Measure the Real-Time Factor of an ONNX model.
 
@@ -93,10 +95,33 @@ def benchmark_rtf(
 
     rng = np.random.default_rng(42)
     # Pre-generate all frames to exclude generation time from benchmark
-    frames = [
-        rng.standard_normal((1, n_freq, 1, 2)).astype(np.float32)
-        for _ in range(total_frames)
-    ]
+    frames = []
+    
+    if audio_path:
+        import soundfile as sf
+        from sih26052.runtime.ola import OverlapAdd
+        
+        ola = OverlapAdd(nfft=nfft, hop=hop)
+        logger.info("Loading %s for benchmark...", audio_path)
+        with sf.SoundFile(str(audio_path)) as sf_in:
+            for block in sf_in.blocks(blocksize=hop, dtype='float32', fill_value=0.0):
+                if block.ndim > 1:
+                    block = block[:, 0]  # mono
+                spec = ola.analyze(block)
+                # spec is (n_freq, 2). ONNX model expects (1, n_freq, 1, 2)
+                spec_onnx = spec[np.newaxis, :, np.newaxis, :]
+                frames.append(spec_onnx)
+                if len(frames) >= total_frames:
+                    break
+        # Pad with silence if audio was shorter than requested duration
+        while len(frames) < total_frames:
+            spec = ola.analyze(np.zeros(hop, dtype=np.float32))
+            frames.append(spec[np.newaxis, :, np.newaxis, :])
+    else:
+        frames = [
+            rng.standard_normal((1, n_freq, 1, 2)).astype(np.float32)
+            for _ in range(total_frames)
+        ]
 
     def run_inference():
         """Run all frames through the model, return elapsed time."""
@@ -153,12 +178,13 @@ def benchmark_rtf(
 def main():
     parser = argparse.ArgumentParser(description="Benchmark ONNX model RTF.")
     parser.add_argument("--onnx", type=Path, required=True)
+    parser.add_argument("--audio", type=Path, default=None, help="Optional real WAV file to use as input")
     parser.add_argument("--duration", type=float, default=60.0)
     parser.add_argument("--runs", type=int, default=3)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    benchmark_rtf(args.onnx, args.duration, n_runs=args.runs)
+    benchmark_rtf(args.onnx, audio_path=args.audio, duration_s=args.duration, n_runs=args.runs)
 
 
 if __name__ == "__main__":

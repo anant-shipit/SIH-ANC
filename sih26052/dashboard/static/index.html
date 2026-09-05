@@ -49,6 +49,28 @@
             </div>
         </section>
 
+        <!-- Budget Section -->
+        <section class="budget-section" id="budget-section">
+            <div class="budget-container">
+                <h2>Compute Budget (Live)</h2>
+                <div class="gauge-bar-container">
+                    <div class="gauge-bar" id="compute-gauge"></div>
+                    <div class="gauge-redline"></div>
+                </div>
+                <div class="gauge-label"><span id="compute-val">0.0</span> ms / 16.0 ms</div>
+            </div>
+            <div class="budget-container">
+                <h2>Algorithmic Budget (Static)</h2>
+                <ul class="static-budget-list">
+                    <li><span>STFT Window</span><span>32 ms</span></li>
+                    <li><span>Hop / Group Delay</span><span>16 ms</span></li>
+                    <li><span>ALSA Buffers</span><span>16 ms</span></li>
+                    <li><span>Inference (Target)</span><span>5 ms</span></li>
+                    <li class="total-budget"><span>Total</span><span>~69 ms</span></li>
+                </ul>
+            </div>
+        </section>
+
         <!-- Spectrograms -->
         <section class="spectrogram-section" id="spectrogram-section">
             <div class="spectrogram-container">

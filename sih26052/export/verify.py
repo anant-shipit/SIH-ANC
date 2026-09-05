@@ -15,9 +15,12 @@ Usage:
 """
 from __future__ import annotations
 
+import sys
+import time
 import argparse
 import logging
 from pathlib import Path
+from typing import Callable, Any
 
 import numpy as np
 
@@ -25,11 +28,14 @@ logger = logging.getLogger(__name__)
 
 
 def verify_onnx_vs_pytorch(
-    checkpoint_path: str | Path,
-    onnx_path: str | Path,
+    checkpoint_path: str | Path | None = None,
+    onnx_path: str | Path = "model.onnx",
     n_frames: int = 100,
-    nfft: int = 512,
     tolerance: float = 1e-4,
+    nfft: int = 512,
+    hop: int = 256,
+    audio_path: str | Path | None = None,
+    model_factory: Callable[[], Any] | None = None,
 ) -> dict:
     """Compare PyTorch and ONNX Runtime outputs frame by frame.
 
@@ -66,30 +72,60 @@ def verify_onnx_vs_pytorch(
     import torch
     import sys
     
-    checkpoint_path = Path(checkpoint_path).expanduser().resolve()
-    gtcrn_root = checkpoint_path.parent.parent
+    if model_factory is not None:
+        logger.info("Using provided model_factory...")
+        model = model_factory()
+    else:
+        if checkpoint_path is None:
+            raise ValueError("Must provide either model_factory or checkpoint_path")
+            
+        checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+        gtcrn_root = checkpoint_path.parent.parent
+        
+        stream_dir = gtcrn_root / "stream"
+        if stream_dir.exists():
+            sys.path.insert(0, str(stream_dir))
+        sys.path.insert(0, str(gtcrn_root))
+        
+        from gtcrn import GTCRN  # type: ignore
+        model = GTCRN()
+        state_dict = torch.load(str(checkpoint_path), map_location="cpu")
+        if "model_state_dict" in state_dict:
+            state_dict = state_dict["model_state_dict"]
+        elif "state_dict" in state_dict:
+            state_dict = state_dict["state_dict"]
+        elif "model" in state_dict:
+            state_dict = state_dict["model"]
+        model.load_state_dict(state_dict, strict=False)
     
-    stream_dir = gtcrn_root / "stream"
-    if stream_dir.exists():
-        sys.path.insert(0, str(stream_dir))
-    sys.path.insert(0, str(gtcrn_root))
-    
-    from gtcrn import GTCRN  # type: ignore
-    model = GTCRN()
-    state_dict = torch.load(str(checkpoint_path), map_location="cpu")
-    if "model_state_dict" in state_dict:
-        state_dict = state_dict["model_state_dict"]
-    elif "state_dict" in state_dict:
-        state_dict = state_dict["state_dict"]
-    elif "model" in state_dict:
-        state_dict = state_dict["model"]
-    model.load_state_dict(state_dict, strict=False)
     model.eval()
 
-    # ── Generate random test sequence ──
-    rng = np.random.default_rng(42)
-    # Shape: (batch=1, freq=257, time=n_frames, complex=2)
-    spec_seq = rng.standard_normal((1, n_freq, n_frames, 2)).astype(np.float32)
+    # ── Generate test sequence ──
+    if audio_path:
+        import soundfile as sf
+        from sih26052.runtime.ola import OverlapAdd
+        
+        ola = OverlapAdd(nfft=nfft, hop=hop)
+        logger.info("Loading %s for verification...", audio_path)
+        frames = []
+        with sf.SoundFile(str(audio_path)) as sf_in:
+            for block in sf_in.blocks(blocksize=hop, dtype='float32', fill_value=0.0):
+                if block.ndim > 1:
+                    block = block[:, 0]
+                spec = ola.analyze(block)
+                frames.append(spec)
+                if len(frames) >= n_frames:
+                    break
+        
+        while len(frames) < n_frames:
+            frames.append(ola.analyze(np.zeros(hop, dtype=np.float32)))
+            
+        spec_seq = np.stack(frames, axis=1) # shape: (n_freq, n_frames, 2)
+        spec_seq = spec_seq[np.newaxis, ...] # shape: (1, n_freq, n_frames, 2)
+    else:
+        rng = np.random.default_rng(42)
+        # Shape: (batch=1, freq=257, time=n_frames, complex=2)
+        spec_seq = rng.standard_normal((1, n_freq, n_frames, 2)).astype(np.float32)
 
     # ── PyTorch full sequence ──
     with torch.no_grad():
@@ -227,11 +263,12 @@ def main():
     parser = argparse.ArgumentParser(description="Verify ONNX export.")
     parser.add_argument("--checkpoint", type=Path, required=True, help="PyTorch checkpoint (.pth)")
     parser.add_argument("--onnx", type=Path, required=True, help="ONNX model path")
+    parser.add_argument("--audio", type=Path, default=None, help="Optional real WAV file to verify against")
     parser.add_argument("--frames", type=int, default=100, help="Frames to test")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    result = verify_onnx_vs_pytorch(args.checkpoint, args.onnx, args.frames)
+    result = verify_onnx_vs_pytorch(args.checkpoint, args.onnx, n_frames=args.frames, audio_path=args.audio)
     print(f"Result: {result}")
 
 

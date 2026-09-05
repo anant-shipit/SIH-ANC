@@ -52,6 +52,7 @@ class SpeechEnhancementDataset:
         composition: dict[str, float] | None = None,
         seed: int | None = None,
         n_pairs: int = 10000,
+        augment: bool = False,
     ):
         """
         Parameters
@@ -76,6 +77,12 @@ class SpeechEnhancementDataset:
             "impulsive": 0.4,
             "stationary": 0.2,
         }
+
+        if augment:
+            from sih26052.data.augment import AugmentPipeline
+            self.augment_pipeline = AugmentPipeline()
+        else:
+            self.augment_pipeline = None
 
         # ── Discover files ──
         self.clean_files = sorted(Path(clean_dir).rglob("*.wav"))
@@ -120,6 +127,9 @@ class SpeechEnhancementDataset:
         clean, sr = sf.read(str(clean_path), dtype="float32")
         if clean.ndim > 1:
             clean = clean.mean(axis=1)
+
+        if self.augment_pipeline is not None:
+            clean = self.augment_pipeline(clean, sr, rng=self.rng)
 
         # ── Random noise file ──
         if category in self.noise_files and self.noise_files[category]:
