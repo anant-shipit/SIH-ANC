@@ -56,13 +56,8 @@ data/val_set/
 *.mp3
 *.aiff
 
-# Model checkpoints and ONNX binaries (large files)
-models/*
-!models/.gitkeep
-*.pth
-*.pt
-*.onnx
-*.tflite
+# Allow model checkpoints and binaries to be tracked
+models/gtcrn/
 
 # Logs
 *.log
