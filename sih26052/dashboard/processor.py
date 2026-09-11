@@ -17,7 +17,13 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import scipy.signal
 import soundfile as sf
-import torch
+
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    torch = None
+    HAS_TORCH = False
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -47,9 +53,11 @@ class ModelEngineManager:
         self._pytorch_model = None
         self._onnx_fp32_enhancer = None
         self._onnx_int8_enhancer = None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if HAS_TORCH else None
 
     def get_pytorch_model(self):
+        if not HAS_TORCH:
+            raise RuntimeError("PyTorch is not installed in this environment. Please select an ONNX engine.")
         if self._pytorch_model is not None:
             return self._pytorch_model
 
@@ -109,29 +117,34 @@ class ModelEngineManager:
         return None
 
     def list_available_engines(self) -> list[dict]:
+        has_int8 = (self.repo_root / "models" / "gtcrn_finetuned_stream_int8.onnx").exists() or (
+            self.repo_root / "models" / "gtcrn_stream_int8.onnx"
+        ).exists()
+        has_fp32 = (self.repo_root / "models" / "gtcrn_finetuned_stream.onnx").exists() or (
+            self.repo_root / "models" / "gtcrn_stream.onnx"
+        ).exists()
+
         engines = [
-            {
-                "id": "pytorch",
-                "name": "PyTorch GTCRN (Highest Fidelity)",
-                "description": "Full complex STFT-domain neural network with 2x DPGRNN and TRA modules.",
-                "available": True,
-                "is_default": True,
-            },
             {
                 "id": "onnx_stream_int8",
                 "name": "ONNX Streaming INT8 (Edge Optimized)",
                 "description": "Quantized streaming ONNX runtime model for ultra-low latency (<0.10 RTF).",
-                "available": (self.repo_root / "models" / "gtcrn_finetuned_stream_int8.onnx").exists()
-                or (self.repo_root / "models" / "gtcrn_stream_int8.onnx").exists(),
-                "is_default": False,
+                "available": has_int8,
+                "is_default": True if (not HAS_TORCH or has_int8) else False,
             },
             {
                 "id": "onnx_stream_fp32",
                 "name": "ONNX Streaming FP32",
                 "description": "Full-precision streaming ONNX runtime model with step-by-step state caching.",
-                "available": (self.repo_root / "models" / "gtcrn_finetuned_stream.onnx").exists()
-                or (self.repo_root / "models" / "gtcrn_stream.onnx").exists(),
+                "available": has_fp32,
                 "is_default": False,
+            },
+            {
+                "id": "pytorch",
+                "name": "PyTorch GTCRN (Highest Fidelity)",
+                "description": "Full complex STFT-domain neural network with 2x DPGRNN and TRA modules.",
+                "available": HAS_TORCH,
+                "is_default": False if (not HAS_TORCH or has_int8) else True,
             },
         ]
         return engines
@@ -291,6 +304,8 @@ def compute_metrics(raw: np.ndarray, enh: np.ndarray, clean: Optional[np.ndarray
 
 def enhance_audio_pytorch(audio: np.ndarray, sr: int = 16000) -> Tuple[np.ndarray, float]:
     """Enhance audio using full PyTorch GTCRN model."""
+    if not HAS_TORCH:
+        raise RuntimeError("PyTorch is not available. Use ONNX streaming engine instead.")
     model = model_manager.get_pytorch_model()
     device = model_manager.device
 
@@ -347,7 +362,7 @@ def enhance_audio_onnx_stream(audio: np.ndarray, int8: bool = True, sr: int = 16
 
 def process_audio_file(
     raw_audio_bytes: bytes,
-    engine: str = "pytorch",
+    engine: str = "onnx_stream_int8" if not HAS_TORCH else "pytorch",
     clean_audio_bytes: Optional[bytes] = None,
 ) -> Dict[str, Any]:
     """Full processing pipeline: load, enhance, compute metrics & spectrograms, return response dict."""
@@ -360,6 +375,10 @@ def process_audio_file(
             clean_audio, _ = read_audio_from_bytes(clean_audio_bytes)
         except Exception as e:
             logger.warning("Could not decode clean audio reference: %s", e)
+
+    # Automatic fallback if PyTorch is requested but not installed
+    if (engine == "pytorch" or not engine) and not HAS_TORCH:
+        engine = "onnx_stream_int8"
 
     # Perform enhancement with selected engine
     if engine == "onnx_stream_int8":

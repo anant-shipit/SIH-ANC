@@ -114,7 +114,7 @@ def create_app():
     @app.post("/api/enhance")
     async def enhance_audio(
         file: UploadFile = File(...),
-        engine: str = Form("pytorch"),
+        engine: str = Form("onnx_stream_int8"),
         clean_file: Optional[UploadFile] = File(None),
         preset_id: Optional[str] = Form(None),
     ):
