@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy_to_pi.sh — Run this on your MAC to:
-#   1. Export your .pth checkpoint to streaming ONNX
-#   2. Quantize to int8
-#   3. SCP the model + setup script to the Pi
-#   4. SSH into the Pi and run the setup automatically
+# deploy_to_pi.sh — Run this on your MAC to deploy SIH26052 to the Pi.
+#
+#   Clones the `pi` branch (includes all INT8 ONNX models) directly on the
+#   Pi over SSH, then runs setup_pi.sh to install system packages + services.
+#   No checkpoint export or model scp required — models ship in the branch.
 #
 # Usage:
 #   chmod +x scripts/deploy_to_pi.sh
-#   ./scripts/deploy_to_pi.sh --checkpoint models/checkpoints/model.pth
+#   ./scripts/deploy_to_pi.sh
 #
 # Optional flags:
 #   --pi-host   <hostname>   default: sih-pi.local
-#   --pi-user   <username>   default: pi
-#   --skip-export            skip ONNX export if model already exists
+#   --pi-user   <username>   default: grovestreet
+#   --model     <filename>   INT8 ONNX file to use (default: gtcrn_finetuned_stream_int8.onnx)
 # =============================================================================
 set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 PI_HOST="sih-pi.local"
 PI_USER="grovestreet"
-CHECKPOINT=""
-SKIP_EXPORT=false
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ONNX_FP32="$REPO_DIR/models/gtcrn_stream.onnx"
-ONNX_INT8="$REPO_DIR/models/gtcrn_stream_int8.onnx"
+REPO_URL="https://github.com/anant-shipit/SIH-ANC.git"
+BRANCH="pi"
+REMOTE_DIR="~/SIH-ANC"
+MODEL="gtcrn_finetuned_stream_int8.onnx"
 
 # ── Color output ─────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -39,12 +38,11 @@ step()    { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 # ── Argument parsing ─────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --checkpoint) CHECKPOINT="$2"; shift 2 ;;
-        --pi-host)    PI_HOST="$2";    shift 2 ;;
-        --pi-user)    PI_USER="$2";    shift 2 ;;
-        --skip-export) SKIP_EXPORT=true; shift ;;
+        --pi-host) PI_HOST="$2"; shift 2 ;;
+        --pi-user) PI_USER="$2"; shift 2 ;;
+        --model)   MODEL="$2";   shift 2 ;;
         -h|--help)
-            echo "Usage: $0 --checkpoint <path.pth> [--pi-host <host>] [--pi-user <user>] [--skip-export]"
+            echo "Usage: $0 [--pi-host <host>] [--pi-user <user>] [--model <int8.onnx>]"
             exit 0 ;;
         *) error "Unknown argument: $1" ;;
     esac
@@ -53,87 +51,120 @@ done
 echo -e "${BOLD}"
 echo "  ╔══════════════════════════════════════════╗"
 echo "  ║   SIH26052 — Pi 5 Deployment Script     ║"
+echo "  ║   Branch: pi  •  No export required     ║"
 echo "  ╚══════════════════════════════════════════╝"
 echo -e "${RESET}"
+info "Target:  $PI_USER@$PI_HOST"
+info "Branch:  $BRANCH (includes all INT8 ONNX models)"
+info "Model:   $MODEL"
 
-# ── Phase 1: Export ONNX (on Mac) ───────────────────────────────────────────
-step "Phase 1: ONNX Export & Quantization (Mac)"
-
-if [ "$SKIP_EXPORT" = true ]; then
-    warn "--skip-export set. Skipping ONNX export."
-    [ -f "$ONNX_INT8" ] || error "No int8 model found at $ONNX_INT8. Cannot skip."
-    success "Using existing model: $ONNX_INT8"
-else
-    [ -n "$CHECKPOINT" ] || error "No --checkpoint provided. Run with --checkpoint path/to/model.pth"
-    [ -f "$CHECKPOINT" ] || error "Checkpoint not found: $CHECKPOINT"
-
-    info "Activating virtual environment..."
-    VENV="$REPO_DIR/venv"
-    [ -d "$VENV" ] || error "No venv found at $VENV. Run: python3 -m venv venv && pip install -r requirements.txt"
-    source "$VENV/bin/activate"
-
-    info "Exporting checkpoint → streaming ONNX..."
-    python3 -m sih26052.export.to_onnx \
-        --checkpoint "$CHECKPOINT" \
-        --output "$ONNX_FP32"
-    success "Exported: $ONNX_FP32"
-
-    info "Quantizing to dynamic int8..."
-    python3 -m sih26052.export.quantize \
-        --input "$ONNX_FP32" \
-        --output "$ONNX_INT8"
-    success "Quantized: $ONNX_INT8"
-
-    ONNX_SIZE=$(du -sh "$ONNX_INT8" | cut -f1)
-    info "Final model size: $ONNX_SIZE"
-fi
-
-# ── Phase 2: Check Pi Connectivity ──────────────────────────────────────────
-step "Phase 2: Connecting to Pi ($PI_USER@$PI_HOST)"
+# ── Phase 1: SSH Key Setup ───────────────────────────────────────────────────
+step "Phase 1: SSH Connection"
 
 info "Testing SSH connection..."
 if ! ssh -o ConnectTimeout=10 -o BatchMode=yes "$PI_USER@$PI_HOST" "echo ok" &>/dev/null; then
-    echo ""
-    warn "Cannot SSH into $PI_USER@$PI_HOST without a password prompt."
-    warn "Setting up SSH key authentication first..."
-    echo ""
+    warn "Passwordless SSH not configured. Setting up key auth..."
 
-    # Generate SSH key if not present
     if [ ! -f "$HOME/.ssh/id_rsa" ] && [ ! -f "$HOME/.ssh/id_ed25519" ]; then
         info "Generating SSH key..."
         ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "sih26052-deploy"
     fi
 
-    info "Copying SSH key to Pi (you'll need to enter the Pi password once)..."
+    info "Copying SSH key to Pi (enter Pi password once)..."
     ssh-copy-id "$PI_USER@$PI_HOST"
-    success "SSH key installed. Future connections will be passwordless."
+    success "SSH key installed — future connections will be passwordless."
 fi
+success "SSH connection OK"
 
-success "SSH connection to $PI_USER@$PI_HOST works!"
+# ── Phase 2: Install system deps on Pi ──────────────────────────────────────
+step "Phase 2: System Dependencies (apt)"
 
-# ── Phase 3: Copy Files to Pi ────────────────────────────────────────────────
-step "Phase 3: Copying Files to Pi"
+info "Installing libportaudio2 and system packages on Pi..."
+ssh "$PI_USER@$PI_HOST" "sudo apt-get update -qq && sudo apt-get install -y \
+    libportaudio2 portaudio19-dev \
+    git python3-venv python3-dev \
+    python3-lgpio python3-gpiozero \
+    alsa-utils libasound2-dev \
+    i2c-tools"
+success "System packages installed"
 
-info "Creating directory structure on Pi..."
-ssh "$PI_USER@$PI_HOST" "mkdir -p ~/SIH-ANC/models ~/SIH-ANC/scripts"
+# ── Phase 3: Clone pi branch on Pi ──────────────────────────────────────────
+step "Phase 3: Clone / Update Repository (pi branch)"
 
-info "Copying int8 ONNX model..."
-scp "$ONNX_INT8" "$PI_USER@$PI_HOST:~/SIH-ANC/models/"
-success "Model copied."
+ssh "$PI_USER@$PI_HOST" "
+    if [ -d $REMOTE_DIR/.git ]; then
+        echo '[INFO] Repo exists — pulling latest pi branch...'
+        cd $REMOTE_DIR
+        git fetch origin
+        git checkout pi
+        git reset --hard origin/pi
+    else
+        echo '[INFO] Cloning pi branch...'
+        git clone --branch pi --single-branch $REPO_URL $REMOTE_DIR
+    fi
+"
+success "Repository ready at $REMOTE_DIR"
 
-info "Copying Pi setup script..."
-scp "$REPO_DIR/scripts/setup_pi.sh" "$PI_USER@$PI_HOST:~/SIH-ANC/scripts/"
-ssh "$PI_USER@$PI_HOST" "chmod +x ~/SIH-ANC/scripts/setup_pi.sh"
-success "Setup script copied."
+# ── Phase 4: Python venv + pip install ──────────────────────────────────────
+step "Phase 4: Python Environment"
 
-# ── Phase 4: Run Setup on Pi ─────────────────────────────────────────────────
-step "Phase 4: Running Setup on Pi"
+ssh "$PI_USER@$PI_HOST" "
+    cd $REMOTE_DIR
+    if [ ! -d venv ]; then
+        python3 -m venv --system-site-packages venv
+    fi
+    source venv/bin/activate
+    pip install --quiet --upgrade pip
+    pip install --quiet -r requirements-pi.txt
+    pip install --quiet -e .
+    echo '[OK] pip install complete'
+"
+success "Python venv ready"
 
-info "Launching Pi setup script over SSH..."
-info "(This will take a few minutes — installing packages, cloning repo, setting up services)"
-echo ""
+# ── Phase 5: I2S + ALSA Config ──────────────────────────────────────────────
+step "Phase 5: I2S Overlay & ALSA Config"
 
-ssh -t "$PI_USER@$PI_HOST" "~/SIH-ANC/scripts/setup_pi.sh"
+info "Copying ALSA config..."
+ssh "$PI_USER@$PI_HOST" "
+    if ! grep -q 'dtparam=i2s=on' /boot/firmware/config.txt 2>/dev/null; then
+        echo 'dtparam=i2s=on' | sudo tee -a /boot/firmware/config.txt
+        echo 'dtoverlay=googlevoicehat-soundcard' | sudo tee -a /boot/firmware/config.txt
+        echo '[INFO] I2S overlay added — reboot required'
+    else
+        echo '[INFO] I2S overlay already enabled'
+    fi
+"
+
+ssh "$PI_USER@$PI_HOST" "
+sudo tee /etc/asound.conf > /dev/null << 'EOF'
+# SIH26052 ALSA config — Dual INMP441 I2S + Quantron QSC-260 USB DAC
+pcm.!default {
+    type asym
+    capture.pcm  \"mic_capture\"
+    playback.pcm \"headphone_out\"
+}
+pcm.mic_capture {
+    type plug
+    slave { pcm \"hw:0,0\"; rate 16000; channels 2; format S32_LE }
+}
+pcm.headphone_out {
+    type plug
+    slave { pcm \"hw:1,0\"; rate 16000; channels 2 }
+}
+ctl.!default { type hw; card 1 }
+EOF
+echo '[OK] /etc/asound.conf written'
+"
+success "ALSA config applied"
+
+# ── Phase 6: CPU Performance Governor ───────────────────────────────────────
+step "Phase 6: CPU Governor"
+
+ssh "$PI_USER@$PI_HOST" "
+    echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null
+    echo '[OK] CPU governor set to performance'
+"
+success "CPU governor: performance"
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
@@ -142,10 +173,12 @@ echo "  ╔═══════════════════════
 echo "  ║         Deployment Complete! ✓           ║"
 echo "  ╚══════════════════════════════════════════╝"
 echo -e "${RESET}"
-echo -e "  ${BOLD}Next steps:${RESET}"
-echo "  1. Wire your I2S mic if you haven't already (see README or guide)"
-echo "  2. SSH into the Pi:  ssh $PI_USER@$PI_HOST"
-echo "  3. Run audio loop:   python3 -m sih26052.runtime.audio_loop --onnx models/gtcrn_stream_int8.onnx"
-echo "  4. Run dashboard:    python3 -m sih26052.dashboard.server --port 8080"
-echo "  5. Open browser:     http://$PI_HOST:8080"
+echo -e "  ${BOLD}Next steps on Pi ($PI_USER@$PI_HOST):${RESET}"
+echo "  1. Reboot if I2S overlay was just added:  sudo reboot"
+echo "  2. Verify mics:  arecord -l && aplay -l"
+echo "  3. Run audio loop:"
+echo "       cd $REMOTE_DIR && source venv/bin/activate"
+echo "       python3 -m sih26052.runtime.audio_loop --onnx models/$MODEL"
+echo "  4. Run dashboard: python3 -m sih26052.dashboard.server --port 8080"
+echo "  5. Open browser:  http://$PI_HOST:8080"
 echo ""
