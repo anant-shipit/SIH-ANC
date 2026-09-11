@@ -1,69 +1,99 @@
-# Byte-compiled / optimized / DLL files
+# ============================================================
+# .gitignore — Pi Branch
+# Only Pi runtime files are tracked.
+# Training data, checkpoints, FP32 models excluded.
+# ============================================================
+
+# ── Python artefacts ──────────────────────────────────────
 __pycache__/
 *.py[cod]
-*$py.class
-
-# C extensions
+*.pyo
 *.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
-
-# Virtual environments
-venv/
+*.egg-info/
+dist/
+build/
+.eggs/
 .venv/
+venv/
 env/
-ENV/
-env.bak/
-venv.bak/
+pip-wheel-metadata/
 
-# Unit test / coverage reports
+# ── Test & Coverage ───────────────────────────────────────
 .pytest_cache/
 .coverage
 .coverage.*
 .cache
+htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
-*.py,cover
-htmlcov/
 
-# Audio data and datasets (do not commit gigabytes of audio)
-data/processed/
-data/raw/
-data/mixed/
-data/val_set/
+# ── Audio data (never commit raw audio) ──────────────────
+data/
 *.wav
 *.flac
 *.ogg
 *.mp3
 *.aiff
 
-# Allow model checkpoints and binaries to be tracked
-models/gtcrn/
+# ── Datasets (never needed on Pi) ────────────────────────
+Datasets/
 
-# Logs
-*.log
-_preprocess_log.json
+# ── Training & experiments ────────────────────────────────
+experiments/
+results/
+reports/
+configs/
+tests/
 
-# Operating System & Editor artifacts
+# ── Model artefacts not needed on Pi ─────────────────────
+# PyTorch checkpoints — too heavy, not used by ONNX runtime
+*.pth
+*.pt
+# FP32 ONNX models — use INT8 only on Pi
+models/checkpoints*/
+models/*.onnx.data
+models/gtcrn_stream.onnx
+models/gtcrn_finetuned_stream.onnx
+models/gtcrn_trained_best.onnx
+models/gtcrn_stream_recall92.onnx
+models/gtcrn_best_precision.onnx
+models/gtcrn_best_recall.onnx
+models/gtcrn_best_specificity.onnx
+models/gtcrn_combo_2way.onnx
+models/gtcrn_combo_3way.onnx
+models/gtcrn_combo_4way.onnx
+models/gtcrn_defense_60_40_fp32.onnx
+# Training-only model subpackages
+sih26052/train/
+sih26052/eval/
+sih26052/export/
+sih26052/adaptive_mixer/
+sih26052/data/
+# Training scripts (keep only Pi deployment scripts)
+scripts/analyze_datasets.py
+scripts/compare_experiments.py
+scripts/compare_fp32_vs_int8.py
+scripts/comprehensive_epoch_eval.py
+scripts/compute_confusion_matrix.py
+scripts/create_defense_test_manifests.py
+scripts/create_test_set.py
+scripts/enhance_audio.py
+scripts/eval_checkpoint.py
+scripts/eval_identity.py
+scripts/export_all_specialized_checkpoints.py
+scripts/export_gtcrn_onnx.py
+scripts/finetune_gtcrn.py
+scripts/generate_demo_audio.py
+scripts/prepare_defense_data.py
+scripts/run_ablation.py
+scripts/sanity_test.py
+scripts/show_model_report.py
+scripts/train.py
+scripts/train_and_export_unified.py
+
+# ── OS & editor artefacts ─────────────────────────────────
 .DS_Store
 .DS_Store?
 ._*
@@ -77,5 +107,6 @@ Thumbs.db
 *.swo
 *~
 
-
-.datasets/
+# ── Logs ──────────────────────────────────────────────────
+*.log
+_preprocess_log.json
