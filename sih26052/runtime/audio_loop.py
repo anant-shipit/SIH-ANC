@@ -357,7 +357,7 @@ Examples:
       --native-sr 48000 --sr 16000
 """
     )
-    parser.add_argument("--onnx", type=Path, required=True, help="Streaming ONNX model")
+    parser.add_argument("--onnx", type=Path, default=None, help="Streaming ONNX model")
     parser.add_argument("--device", type=int, default=None,
                         help="Shared audio device index (used when input and output are the same device)")
     parser.add_argument("--input-device", default=None,
@@ -382,6 +382,13 @@ Examples:
         import sounddevice as sd
         print(sd.query_devices())
         return
+
+    if not args.onnx:
+        default_model = Path("models/gtcrn_finetuned_stream_int8.onnx")
+        if default_model.exists():
+            args.onnx = default_model
+        else:
+            parser.error("--onnx is required unless --list-devices is given")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
