@@ -12,6 +12,13 @@ soundfile>=0.12
 sounddevice>=0.4
 onnxruntime>=1.15
 
+# Dashboard & UI
+fastapi>=0.100
+uvicorn>=0.23
+websockets>=11.0
+python-multipart
+
 # GPIO (Pi 5 uses lgpio backend, Pi 4B uses rpigpio backend)
 gpiozero
 lgpio
+
