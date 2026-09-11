@@ -395,20 +395,94 @@ Examples:
     # --native-sr defaults to --sr (pass-through, no resampling)
     native_sr = args.native_sr if args.native_sr is not None else args.sr
 
-    # Parse device args — allow int or string (ALSA device name)
-    def parse_device(val):
+    # Parse / resolve device args — handle integers, ALSA names ('plughw:2', 'hw:2'), substrings, or auto-detect
+    def resolve_device(val, kind="input"):
         if val is None:
             return None
         try:
             return int(val)
         except (ValueError, TypeError):
-            return val  # ALSA name string like 'plughw:0'
+            pass
+
+        import sounddevice as sd
+        import re
+        devices = sd.query_devices()
+        val_str = str(val).lower()
+
+        # Extract hardware card number if specified like "plughw:2" or "hw:2,0"
+        m = re.search(r"hw:?(\d+)", val_str)
+        hw_target = f"hw:{m.group(1)}" if m else None
+
+        for idx, d in enumerate(devices):
+            channels = d["max_input_channels"] if kind == "input" else d["max_output_channels"]
+            if channels <= 0:
+                continue
+            d_name = d["name"].lower()
+            if hw_target and hw_target in d_name:
+                return idx
+            if val_str in d_name:
+                return idx
+        return val
+
+    def auto_detect_devices():
+        import sounddevice as sd
+        devices = sd.query_devices()
+        in_idx = None
+        out_idx = None
+
+        in_keywords = ["voicehat", "googlevoicehat", "i2s", "inmp441", "mic"]
+        for kw in in_keywords:
+            for idx, d in enumerate(devices):
+                if d["max_input_channels"] > 0 and kw in d["name"].lower():
+                    in_idx = idx
+                    break
+            if in_idx is not None:
+                break
+
+        if in_idx is None:
+            for idx, d in enumerate(devices):
+                if d["max_input_channels"] > 0:
+                    in_idx = idx
+                    break
+
+        out_keywords = ["usb", "pnp", "headphone", "audio", "dac", "codec"]
+        for kw in out_keywords:
+            for idx, d in enumerate(devices):
+                if d["max_output_channels"] > 0 and kw in d["name"].lower():
+                    out_idx = idx
+                    break
+            if out_idx is not None:
+                break
+
+        if out_idx is None:
+            for idx, d in enumerate(devices):
+                if d["max_output_channels"] > 0:
+                    out_idx = idx
+                    break
+
+        return in_idx, out_idx
+
+    input_dev = resolve_device(args.input_device, kind="input")
+    output_dev = resolve_device(args.output_device, kind="output")
+
+    if input_dev is None and output_dev is None and args.device is None:
+        auto_in, auto_out = auto_detect_devices()
+        logger.info("Auto-detected devices: input=%s, output=%s", auto_in, auto_out)
+        input_dev = auto_in
+        output_dev = auto_out
+
+    import sounddevice as sd
+    devs = sd.query_devices()
+    if input_dev is not None and isinstance(input_dev, int) and input_dev < len(devs):
+        logger.info("Selected Input Device  [%d]: %s (%d in)", input_dev, devs[input_dev]["name"], devs[input_dev]["max_input_channels"])
+    if output_dev is not None and isinstance(output_dev, int) and output_dev < len(devs):
+        logger.info("Selected Output Device [%d]: %s (%d out)", output_dev, devs[output_dev]["name"], devs[output_dev]["max_output_channels"])
 
     loop = AudioLoop(
         onnx_path=args.onnx,
         device=args.device,
-        input_device=parse_device(args.input_device),
-        output_device=parse_device(args.output_device),
+        input_device=input_dev,
+        output_device=output_dev,
         sr=args.sr,
         native_sr=native_sr,
         hop=args.hop,
