@@ -70,7 +70,8 @@ class AudioLoop:
     ):
         from sih26052.runtime.ola import OverlapAdd
         from sih26052.runtime.enhancer import StreamingEnhancer
-        from sih26052.runtime.ab_switch import ABSwitch
+        from sih26052.runtime.ab_switch import ABSwitch, attach_gpio_button
+        from sih26052.runtime.led_status import LEDStatus
 
         self.sr = sr
         self.hop = hop
@@ -80,6 +81,8 @@ class AudioLoop:
         self.ola = OverlapAdd(nfft=nfft, hop=hop)
         self.enhancer = StreamingEnhancer(onnx_path, n_freq=nfft // 2 + 1)
         self.ab_switch = ABSwitch(sr=sr)
+        self.leds = LEDStatus(led_sys_pin=22, led_mode_pin=23, led_act_pin=24)
+        self.button_ref = None
 
         # ── Impulse gate placeholder (populated in Phase 5) ──
         if use_impulse_gate:
@@ -98,6 +101,7 @@ class AudioLoop:
 
         # ── Preallocated buffers ──
         self._mono_buffer = np.zeros(hop, dtype=np.float32)
+        self._ref_buffer = np.zeros(hop, dtype=np.float32)
         self._raw_buffer = np.zeros(hop, dtype=np.float32)
         self._prev_mono_buffer = np.zeros(hop, dtype=np.float32)
         self._enhanced_buffer = np.zeros(hop, dtype=np.float32)
@@ -116,9 +120,10 @@ class AudioLoop:
 
         self.frame_count += 1
 
-        # ── Get mono input ──
-        # indata shape: (frames, channels) — take first channel
+        # ── Get input channels (Dual INMP441: Left = Primary Mic, Right = Ref Mic) ──
         np.copyto(self._mono_buffer, indata[:, 0])
+        if indata.shape[1] > 1:
+            np.copyto(self._ref_buffer, indata[:, 1])
         mono_in = self._mono_buffer
 
         # ── STFT analysis ──
@@ -148,6 +153,13 @@ class AudioLoop:
         if outdata.shape[1] > 1:
             outdata[:, 1] = output  # duplicate to stereo if needed
 
+        # Update LED 2 (GTCRN Filtered active mode) & LED 3 (Activity)
+        if self.leds.enabled and self.frame_count % 5 == 0:
+            self.leds.set_enhancement_mode(self.ab_switch.is_enhanced)
+            # Pulse activity LED if audio level exceeds threshold
+            is_active = np.max(np.abs(output)) > 0.05
+            self.leds.set_activity(is_active)
+
         # ── Push metrics to dashboard queue (non-blocking) ──
         try:
             metrics = {
@@ -164,24 +176,23 @@ class AudioLoop:
             pass  # Dashboard is behind — drop this frame's metrics
 
     def run(self, duration: float | None = None) -> None:
-        """Start the real-time loop.
-
-        Parameters
-        ----------
-        duration : run for this many seconds, then stop.
-                   None = run until Ctrl+C.
-        """
+        """Start the real-time loop."""
         import sounddevice as sd
+        from sih26052.runtime.ab_switch import attach_gpio_button
 
         logger.info(
             "Starting audio loop: device=%s, sr=%d, hop=%d, model=%s",
             self.device, self.sr, self.hop, self.enhancer.onnx_path,
         )
 
+        # Attach hardware push button on Pin 11 / GPIO 17
+        self.button_ref = attach_gpio_button(self.ab_switch, gpio_pin=17)
+
+        # Enable System Active LED (LED 1 / GPIO 22)
+        self.leds.set_system_active(True)
+        self.leds.set_enhancement_mode(self.ab_switch.is_enhanced)
+
         # ── Open stream ──
-        # latency=0.016 (16ms) works on Pi 5.  If xruns climb over a
-        # 10-minute run, step back to 0.032.  This is the ~16ms saving
-        # vs earlier Pi generations — measure it, don't assume it.
         stream = sd.Stream(
             device=self.device,
             samplerate=self.sr,
@@ -204,8 +215,8 @@ class AudioLoop:
         signal.signal(signal.SIGINT, handle_sigint)
 
         with stream:
-            logger.info("Audio stream active.  Press Ctrl+C to stop.")
-            logger.info("Press SPACE to toggle A/B switch (if keyboard handler is active)")
+            logger.info("Audio stream active. Press Ctrl+C to stop.")
+            logger.info("Push Button (GPIO 17) or SPACE toggles A/B switch.")
 
             try:
                 while not stop_event:
@@ -224,6 +235,8 @@ class AudioLoop:
                         )
             except KeyboardInterrupt:
                 pass
+            finally:
+                self.leds.close()
 
         elapsed = time.monotonic() - self.start_time
         logger.info(

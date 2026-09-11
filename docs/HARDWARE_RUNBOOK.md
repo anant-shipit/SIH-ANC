@@ -1,10 +1,48 @@
-# GTCRN Hardware Runbook
+# GTCRN Hardware Runbook (Raspberry Pi 5)
 
-This runbook outlines the required system configuration to achieve real-time, zero-xrun performance for GTCRN on constrained edge devices like the Raspberry Pi 5. 
+This runbook outlines the hardware components, GPIO pinout wiring, and OS scheduling configuration required to achieve real-time, zero-xrun GTCRN neural speech enhancement on the Raspberry Pi 5.
 
-Audio processing on Linux is highly sensitive to OS scheduling jitter. A 16ms audio budget means missing a single thread wake-up by 2-3ms will cause an xrun (buffer underrun) resulting in audible clicking. To achieve reliable streaming, you must bypass the standard Linux completely fair scheduler (CFS) for the audio thread.
+---
 
-## 1. Deployment Pipeline (Mac → Pi)
+## 1. System Hardware Components & Wiring
+
+### **Hardware Components**
+- **Raspberry Pi 5 (8GB)**: Runs Raspberry Pi OS 64-bit (Bookworm) and the ONNX INT8 neural noise-suppression runtime.
+- **2x INMP441 Digital MEMS Microphones**: Digital I2S mics with integrated 24/32-bit ADCs (no external codec required).
+  - **Mic 1 (Primary)**: Mounted near mouth (speech + noise), `L/R` pin wired to `GND` (Left Channel).
+  - **Mic 2 (Reference)**: Noise-facing (ref ambient noise), `L/R` pin wired to `3.3V` (Right Channel).
+- **Quantron QSC-260 USB Sound Card**: External USB DAC + headphone amplifier for zero-latency audio output.
+- **Push Button**: Momentary tactile switch to toggle Raw vs. GTCRN Enhanced audio mode in real time.
+- **3x Status LEDs (+ Resistors)**: Physical status indicators (System Active, Enhanced Mode, Audio Peak Activity).
+- **Active Cooler & 27W PSU**: Dedicated 4-pin fan header & 27W USB-C power supply.
+
+### **Signal Flow Path**
+> **Mics → 2x INMP441 (Analog ➔ Digital) → Stereo I2S → Raspberry Pi 5 (STFT ➔ GTCRN ➔ iSTFT ➔ Impulse Gate) → USB ➔ Quantron QSC-260 Sound Card (Digital ➔ Analog) → Headphones**
+
+---
+
+### **Pin Configuration & Wiring Table**
+
+| Component | Pin / Port | GPIO | Notes / Connection |
+| :--- | :--- | :--- | :--- |
+| **Mic 1 VDD** | Pin 1 / 17 | `3.3V` | Shared 3.3V power supply with Mic 2 |
+| **Mic 1 & 2 GND** | Any GND | `GND` | Shared Ground connection |
+| **Mic 1 & 2 SCK** | Pin 12 | `GPIO18` | Shared I2S Serial Clock |
+| **Mic 1 & 2 WS** | Pin 35 | `GPIO19` | Shared I2S Word Select (LRCLK) |
+| **Mic 1 & 2 SD** | Pin 38 | `GPIO20` | Shared I2S Serial Data line |
+| **Mic 1 L/R Pin** | — | — | Wired to `GND` (Selects **Left** Channel — Primary Mic) |
+| **Mic 2 L/R Pin** | — | — | Wired to `3.3V` (Selects **Right** Channel — Reference Mic) |
+| **Push Button** | Pin 11 | `GPIO17` | Other leg to `GND` (Uses internal pull-up) |
+| **LED 1 (System Status)** | Pin 15 | `GPIO22` | + resistor ➔ `GND` (Solid ON when streaming) |
+| **LED 2 (Enhanced Mode)** | Pin 16 | `GPIO23` | + resistor ➔ `GND` (ON = Filtered, OFF = Raw) |
+| **LED 3 (Audio Activity)** | Pin 18 | `GPIO24` | + resistor ➔ `GND` (Pulses during speech/activity) |
+| **USB Sound Card** | USB-A Port | — | Quantron QSC-260 DAC/Amp |
+| **Active Cooler** | 4-Pin Fan Port | — | Dedicated cooling connector |
+| **27W Power Supply** | USB-C Port | — | Primary power input |
+
+---
+
+## 2. Deployment Pipeline (Mac → Pi)
 
 Before tuning the OS, you must package your trained model and deploy it to the Pi. The Pi **should not** have PyTorch installed; it only needs ONNX Runtime.
 

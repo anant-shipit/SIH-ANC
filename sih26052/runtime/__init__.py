@@ -2,6 +2,7 @@ from .ab_switch import ABSwitch
 from .audio_loop import AudioLoop
 from .enhancer import StreamingEnhancer
 from .impulse_gate import ImpulseGate
+from .led_status import LEDStatus
 from .nlms import NLMSFilter
 from .ola import OverlapAdd
 
@@ -10,6 +11,7 @@ __all__ = [
     "AudioLoop",
     "StreamingEnhancer",
     "ImpulseGate",
+    "LEDStatus",
     "NLMSFilter",
     "OverlapAdd",
 ]

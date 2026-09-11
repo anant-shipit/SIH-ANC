@@ -49,6 +49,7 @@ htmlcov/
 data/processed/
 data/raw/
 data/mixed/
+data/val_set/
 *.wav
 *.flac
 *.ogg
@@ -80,3 +81,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+
+.datasets/

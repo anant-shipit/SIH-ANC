@@ -1,0 +1,62 @@
+[
+  {
+    "id": 0,
+    "snr_db": -4.97,
+    "pesq_in": 1.041,
+    "pesq_out": 1.081,
+    "stoi_in": 0.604,
+    "stoi_out": 0.624,
+    "si_snr_out": 1.63,
+    "noisy_url": "/static/eval_samples/sample_0_noisy.wav",
+    "enhanced_url": "/static/eval_samples/sample_0_enhanced.wav",
+    "clean_url": "/static/eval_samples/sample_0_clean.wav"
+  },
+  {
+    "id": 1,
+    "snr_db": 7.07,
+    "pesq_in": 1.451,
+    "pesq_out": 2.337,
+    "stoi_in": 0.833,
+    "stoi_out": 0.856,
+    "si_snr_out": 16.37,
+    "noisy_url": "/static/eval_samples/sample_1_noisy.wav",
+    "enhanced_url": "/static/eval_samples/sample_1_enhanced.wav",
+    "clean_url": "/static/eval_samples/sample_1_clean.wav"
+  },
+  {
+    "id": 2,
+    "snr_db": 12.35,
+    "pesq_in": 1.459,
+    "pesq_out": 3.044,
+    "stoi_in": 0.866,
+    "stoi_out": 0.905,
+    "si_snr_out": 17.44,
+    "noisy_url": "/static/eval_samples/sample_2_noisy.wav",
+    "enhanced_url": "/static/eval_samples/sample_2_enhanced.wav",
+    "clean_url": "/static/eval_samples/sample_2_clean.wav"
+  },
+  {
+    "id": 3,
+    "snr_db": -3.56,
+    "pesq_in": 1.185,
+    "pesq_out": 1.31,
+    "stoi_in": 0.673,
+    "stoi_out": 0.705,
+    "si_snr_out": 1.28,
+    "noisy_url": "/static/eval_samples/sample_3_noisy.wav",
+    "enhanced_url": "/static/eval_samples/sample_3_enhanced.wav",
+    "clean_url": "/static/eval_samples/sample_3_clean.wav"
+  },
+  {
+    "id": 4,
+    "snr_db": 7.44,
+    "pesq_in": 1.506,
+    "pesq_out": 1.944,
+    "stoi_in": 0.852,
+    "stoi_out": 0.898,
+    "si_snr_out": 15.31,
+    "noisy_url": "/static/eval_samples/sample_4_noisy.wav",
+    "enhanced_url": "/static/eval_samples/sample_4_enhanced.wav",
+    "clean_url": "/static/eval_samples/sample_4_clean.wav"
+  }
+]
