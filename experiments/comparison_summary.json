@@ -1,0 +1,23 @@
+{
+  "num_experiments": 1,
+  "experiments": [
+    {
+      "name": "experiment_001_random_baseline",
+      "mode": "random",
+      "best_epoch": 1,
+      "final_metrics": {
+        "loss": 1.3925637602806091,
+        "pesq": 2.4016240668296813,
+        "stoi": 0.9080675619221893,
+        "si_snr": 15.276783671807808,
+        "si_snr_input": 9.385714232090422,
+        "si_snr_improvement": 5.891069439717386
+      },
+      "improvement": {
+        "pesq": -0.2593343806266786,
+        "stoi": 0.00024294527589363568,
+        "si_snr": -1.1663064299924368
+      }
+    }
+  ]
+}

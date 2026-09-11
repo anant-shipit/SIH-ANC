@@ -84,13 +84,13 @@ def benchmark_rtf(
 
     input_names = [inp.name for inp in sess.get_inputs()]
     output_names = [out.name for out in sess.get_outputs()]
+    spec_input_name = input_names[0]
 
     def init_states():
         states = {}
-        for inp in sess.get_inputs():
-            if inp.name != "spec_frame":
-                shape = [d if isinstance(d, int) else 1 for d in inp.shape]
-                states[inp.name] = np.zeros(shape, dtype=np.float32)
+        for inp in sess.get_inputs()[1:]:
+            shape = [d if isinstance(d, int) else 1 for d in inp.shape]
+            states[inp.name] = np.zeros(shape, dtype=np.float32)
         return states
 
     rng = np.random.default_rng(42)
@@ -129,16 +129,17 @@ def benchmark_rtf(
         t0 = time.perf_counter()
 
         for spec in frames:
-            feed = {"spec_frame": spec, **states}
+            feed = {spec_input_name: spec, **states}
             outputs = sess.run(output_names, feed)
             # Update states
-            for i, name in enumerate(output_names):
+            for i, name in enumerate(output_names[1:], start=1):
                 in_name = name.replace("_out", "")
                 if in_name in states:
-                    states[in_name] = outputs[i]
+                    states[in_name] = np.asarray(outputs[i])
 
         t1 = time.perf_counter()
         return t1 - t0
+
 
     # ── Warm-up ──
     if warmup:

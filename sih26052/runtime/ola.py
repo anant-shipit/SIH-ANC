@@ -120,6 +120,16 @@ class OverlapAdd:
 
         return output
 
+    def synthesize_zeros(self) -> np.ndarray:
+        """Reconstruct *hop* zero-filled samples through OLA (silence frame).
+
+        Returns
+        -------
+        output : float32 array of shape (hop,) — output samples
+        """
+        zero_spec = np.zeros((self.n_freq, 2), dtype=np.float32)
+        return self.synthesize(zero_spec)
+
     def reset(self) -> None:
         """Clear all internal buffers (e.g. when switching audio sources)."""
         self._input_buffer[:] = 0.0

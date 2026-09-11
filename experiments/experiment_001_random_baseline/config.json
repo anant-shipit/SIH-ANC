@@ -1,0 +1,30 @@
+{
+  "mode": "random",
+  "epochs": 2,
+  "batch_size": 16,
+  "lr": 0.0001,
+  "grad_clip": 3.0,
+  "n_pairs": 100,
+  "crop_samples": 32000,
+  "snr_range": [
+    -10.0,
+    15.0
+  ],
+  "clean_ratio": 0.4,
+  "noise_ratio": 0.6,
+  "composite_mixing": true,
+  "checkpoint": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/models/gtcrn/checkpoints/model_trained_on_dns3.tar",
+  "seed": 42,
+  "stft": {
+    "nfft": 512,
+    "hop": 256,
+    "win_len": 512,
+    "window": "sqrt_hann"
+  },
+  "loss": {
+    "type": "HybridLoss",
+    "lambda_ri": 30,
+    "lambda_mag": 70,
+    "compress_power": 0.3
+  }
+}

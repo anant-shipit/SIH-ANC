@@ -49,7 +49,7 @@ class ImpulseGate:
         self,
         sr: int = 16000,
         hop: int = 256,
-        threshold_ratio: float = 10.0,
+        threshold_ratio: float = 9.0,
         hold_ms: float = 50.0,
         release_ms: float = 150.0,
         attenuation_db: float = -20.0,

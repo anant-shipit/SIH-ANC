@@ -8,7 +8,7 @@ __all__ = ["SpeechEnhancementDataset"]
 try:
     from .loss import CombinedLoss, CompressedSpectralLoss, SISNRLoss
     from .select_checkpoint import select_best_checkpoint
-    from .train import load_pretrained, save_checkpoint, train
+    from .train import evaluate, forward_gtcrn, load_gtcrn, main as train_main
     from .validate import check_catastrophic_forgetting, validate_epoch
 
     __all__ += [
@@ -16,9 +16,10 @@ try:
         "CompressedSpectralLoss",
         "SISNRLoss",
         "select_best_checkpoint",
-        "load_pretrained",
-        "save_checkpoint",
-        "train",
+        "evaluate",
+        "forward_gtcrn",
+        "load_gtcrn",
+        "train_main",
         "check_catastrophic_forgetting",
         "validate_epoch",
     ]

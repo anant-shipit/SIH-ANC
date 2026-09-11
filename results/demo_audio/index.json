@@ -1,0 +1,178 @@
+[
+  {
+    "category": "background",
+    "sample_id": "sample_01",
+    "snr_db": -5.0,
+    "clean_path": "results/demo_audio/background/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/background/sample_01_noisy_snr-05db.wav",
+    "enhanced_path": "results/demo_audio/background/sample_01_enhanced_snr-05db.wav",
+    "input_metrics": {
+      "pesq": 1.019,
+      "stoi": 0.635,
+      "si_sdr": -4.63
+    },
+    "enhanced_metrics": {
+      "pesq": 1.296,
+      "stoi": 0.685,
+      "si_sdr": 7.36
+    },
+    "improvement": {
+      "si_sdr_gain": 11.99,
+      "pesq_gain": 0.277
+    }
+  },
+  {
+    "category": "background",
+    "sample_id": "sample_01",
+    "snr_db": 5.0,
+    "clean_path": "results/demo_audio/background/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/background/sample_01_noisy_snr+05db.wav",
+    "enhanced_path": "results/demo_audio/background/sample_01_enhanced_snr+05db.wav",
+    "input_metrics": {
+      "pesq": 1.055,
+      "stoi": 0.81,
+      "si_sdr": 5.13
+    },
+    "enhanced_metrics": {
+      "pesq": 1.855,
+      "stoi": 0.843,
+      "si_sdr": 9.93
+    },
+    "improvement": {
+      "si_sdr_gain": 4.81,
+      "pesq_gain": 0.8
+    }
+  },
+  {
+    "category": "environmental",
+    "sample_id": "sample_01",
+    "snr_db": -5.0,
+    "clean_path": "results/demo_audio/environmental/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/environmental/sample_01_noisy_snr-05db.wav",
+    "enhanced_path": "results/demo_audio/environmental/sample_01_enhanced_snr-05db.wav",
+    "input_metrics": {
+      "pesq": 1.031,
+      "stoi": 0.795,
+      "si_sdr": -5.02
+    },
+    "enhanced_metrics": {
+      "pesq": 2.773,
+      "stoi": 0.838,
+      "si_sdr": 4.94
+    },
+    "improvement": {
+      "si_sdr_gain": 9.96,
+      "pesq_gain": 1.742
+    }
+  },
+  {
+    "category": "environmental",
+    "sample_id": "sample_01",
+    "snr_db": 5.0,
+    "clean_path": "results/demo_audio/environmental/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/environmental/sample_01_noisy_snr+05db.wav",
+    "enhanced_path": "results/demo_audio/environmental/sample_01_enhanced_snr+05db.wav",
+    "input_metrics": {
+      "pesq": 2.206,
+      "stoi": 0.812,
+      "si_sdr": 5.0
+    },
+    "enhanced_metrics": {
+      "pesq": 1.973,
+      "stoi": 0.843,
+      "si_sdr": 14.02
+    },
+    "improvement": {
+      "si_sdr_gain": 9.02,
+      "pesq_gain": -0.232
+    }
+  },
+  {
+    "category": "gunfire",
+    "sample_id": "sample_01",
+    "snr_db": -5.0,
+    "clean_path": "results/demo_audio/gunfire/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/gunfire/sample_01_noisy_snr-05db.wav",
+    "enhanced_path": "results/demo_audio/gunfire/sample_01_enhanced_snr-05db.wav",
+    "input_metrics": {
+      "pesq": 1.236,
+      "stoi": 0.788,
+      "si_sdr": -4.99
+    },
+    "enhanced_metrics": {
+      "pesq": 1.765,
+      "stoi": 0.919,
+      "si_sdr": 17.73
+    },
+    "improvement": {
+      "si_sdr_gain": 22.71,
+      "pesq_gain": 0.529
+    }
+  },
+  {
+    "category": "gunfire",
+    "sample_id": "sample_01",
+    "snr_db": 5.0,
+    "clean_path": "results/demo_audio/gunfire/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/gunfire/sample_01_noisy_snr+05db.wav",
+    "enhanced_path": "results/demo_audio/gunfire/sample_01_enhanced_snr+05db.wav",
+    "input_metrics": {
+      "pesq": 1.764,
+      "stoi": 0.843,
+      "si_sdr": 5.0
+    },
+    "enhanced_metrics": {
+      "pesq": 2.332,
+      "stoi": 0.941,
+      "si_sdr": 17.83
+    },
+    "improvement": {
+      "si_sdr_gain": 12.83,
+      "pesq_gain": 0.567
+    }
+  },
+  {
+    "category": "unseen_gunfire",
+    "sample_id": "sample_01",
+    "snr_db": -5.0,
+    "clean_path": "results/demo_audio/unseen_gunfire/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/unseen_gunfire/sample_01_noisy_snr-05db.wav",
+    "enhanced_path": "results/demo_audio/unseen_gunfire/sample_01_enhanced_snr-05db.wav",
+    "input_metrics": {
+      "pesq": 1.053,
+      "stoi": 0.359,
+      "si_sdr": -4.78
+    },
+    "enhanced_metrics": {
+      "pesq": 1.111,
+      "stoi": 0.648,
+      "si_sdr": 3.51
+    },
+    "improvement": {
+      "si_sdr_gain": 8.28,
+      "pesq_gain": 0.058
+    }
+  },
+  {
+    "category": "unseen_gunfire",
+    "sample_id": "sample_01",
+    "snr_db": 5.0,
+    "clean_path": "results/demo_audio/unseen_gunfire/sample_01_clean.wav",
+    "noisy_path": "results/demo_audio/unseen_gunfire/sample_01_noisy_snr+05db.wav",
+    "enhanced_path": "results/demo_audio/unseen_gunfire/sample_01_enhanced_snr+05db.wav",
+    "input_metrics": {
+      "pesq": 1.115,
+      "stoi": 0.617,
+      "si_sdr": 5.07
+    },
+    "enhanced_metrics": {
+      "pesq": 1.464,
+      "stoi": 0.799,
+      "si_sdr": 11.18
+    },
+    "improvement": {
+      "si_sdr_gain": 6.1,
+      "pesq_gain": 0.348
+    }
+  }
+]

@@ -108,6 +108,8 @@ class ManifestWriter:
             duration_s=round(duration_s, 3),
         )
         line = json.dumps(entry.to_dict(), ensure_ascii=False)
+        if self._fp is None:
+            raise RuntimeError("ManifestWriter must be opened (e.g. using 'with') before writing.")
         self._fp.write(line + "\n")
         self._count += 1
 

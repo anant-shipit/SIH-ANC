@@ -37,7 +37,37 @@ dashboard = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "types-tqdm",
 ]
 
 [tool.setuptools.packages.find]
 include = ["sih26052*"]
+
+[tool.pyrefly]
+project-excludes = [
+    "Datasets/**",
+    "models/**",
+    ".venv/**",
+]
+search-path = [
+    ".",
+    "models/gtcrn",
+    "models/gtcrn/stream",
+    "models/FullSubNet",
+    "models/FullSubNet/recipes/dns_interspeech_2020/fullsubnet",
+    "models/DeepFilterNet/DeepFilterNet",
+]
+
+[tool.pyright]
+extraPaths = [
+    ".",
+    "models/gtcrn",
+    "models/gtcrn/stream",
+    "models/FullSubNet",
+    "models/FullSubNet/recipes/dns_interspeech_2020/fullsubnet",
+    "models/DeepFilterNet/DeepFilterNet",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

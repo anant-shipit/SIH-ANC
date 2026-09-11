@@ -150,3 +150,9 @@ class TestProperties:
         ola = OverlapAdd(nfft=512, hop=256)
         assert ola.latency_samples == 256
         assert ola.latency_ms(sr=16000) == 16.0
+
+    def test_synthesize_zeros(self):
+        ola = OverlapAdd(nfft=512, hop=256)
+        out = ola.synthesize_zeros()
+        assert out.shape == (256,)
+        assert np.all(out == 0.0)

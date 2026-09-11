@@ -57,9 +57,9 @@ def select_best_checkpoint(
 
     logger.info("Found %d checkpoints in %s", len(checkpoints), checkpoint_dir)
 
-    best_path = None
+    best_path = checkpoints[0]
     best_pesq = -float("inf")
-    best_metrics = {}
+    best_metrics: dict = {}
     all_results = []
 
     for ckpt_path in checkpoints:

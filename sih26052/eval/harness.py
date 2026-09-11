@@ -48,7 +48,12 @@ class SubsetMetrics:
     pesq_out_scores: list[float]    = dataclasses.field(default_factory=list)
     stoi_in_scores: list[float]     = dataclasses.field(default_factory=list)
     stoi_out_scores: list[float]    = dataclasses.field(default_factory=list)
+    si_snr_in_scores: list[float]   = dataclasses.field(default_factory=list)
     si_snr_out_scores: list[float]  = dataclasses.field(default_factory=list)
+    accuracy_scores: list[float]    = dataclasses.field(default_factory=list)
+    precision_scores: list[float]   = dataclasses.field(default_factory=list)
+    recall_scores: list[float]      = dataclasses.field(default_factory=list)
+    f1_scores: list[float]          = dataclasses.field(default_factory=list)
     pesq_skips: int = 0
     stoi_skips: int = 0
     count: int = 0
@@ -74,8 +79,33 @@ class SubsetMetrics:
         return float(np.mean(self.stoi_out_scores)) if self.stoi_out_scores else 0.0
 
     @property
+    def si_snr_in_mean(self) -> float:
+        return float(np.mean(self.si_snr_in_scores)) if self.si_snr_in_scores else 0.0
+
+    @property
     def si_snr_out_mean(self) -> float:
         return float(np.mean(self.si_snr_out_scores)) if self.si_snr_out_scores else 0.0
+
+    @property
+    def si_snr_delta(self) -> float:
+        return self.si_snr_out_mean - self.si_snr_in_mean
+
+    @property
+    def accuracy_mean(self) -> float:
+        return float(np.mean(self.accuracy_scores)) if self.accuracy_scores else 0.0
+
+    @property
+    def precision_mean(self) -> float:
+        return float(np.mean(self.precision_scores)) if self.precision_scores else 0.0
+
+    @property
+    def recall_mean(self) -> float:
+        return float(np.mean(self.recall_scores)) if self.recall_scores else 0.0
+
+    @property
+    def f1_mean(self) -> float:
+        return float(np.mean(self.f1_scores)) if self.f1_scores else 0.0
+
 
 
 @dataclasses.dataclass
@@ -86,10 +116,10 @@ class EvalResults:
 
     def format_table(self) -> str:
         """Format the headline table as a string."""
-        lines = []
+        lines: list[str] = []
         header = (
-            f"{'Subset':<18} | {'PESQ in':>8} | {'PESQ out':>8} | "
-            f"{'Δ':>6} | {'STOI in':>8} | {'STOI out':>8} | {'SI-SNR out':>10}"
+            f"{'Subset':<26} | {'PESQ out':>8} | {'Δ PESQ':>7} | {'STOI out':>8} | "
+            f"{'SI-SNR out':>10} | {'Δ SI-SNR':>9} | {'Acc (%)':>7} | {'Recall':>7} | {'Prec':>6} | {'F1':>6}"
         )
         sep = "-" * len(header)
 
@@ -97,8 +127,10 @@ class EvalResults:
         lines.append(header)
         lines.append(sep)
 
-        # Subsets in consistent order
-        for subset_name in ["stationary", "impulsive", "real"]:
+        # Predefined subsets first if present, then all other defense subsets sorted
+        order = ["stationary", "impulsive", "real"]
+        remaining = sorted([s for s in self.subsets.keys() if s not in order])
+        for subset_name in order + remaining:
             if subset_name in self.subsets:
                 sm = self.subsets[subset_name]
                 lines.append(_format_row(sm))
@@ -113,10 +145,12 @@ class EvalResults:
 def _format_row(sm: SubsetMetrics) -> str:
     """Format one row of the results table."""
     return (
-        f"{sm.subset:<18} | {sm.pesq_in_mean:>8.3f} | {sm.pesq_out_mean:>8.3f} | "
-        f"{sm.pesq_delta:>+6.3f} | {sm.stoi_in_mean:>8.3f} | {sm.stoi_out_mean:>8.3f} | "
-        f"{sm.si_snr_out_mean:>10.2f}"
+        f"{sm.subset:<26} | {sm.pesq_out_mean:>8.3f} | {sm.pesq_delta:>+7.3f} | "
+        f"{sm.stoi_out_mean:>8.3f} | {sm.si_snr_out_mean:>10.2f} | {sm.si_snr_delta:>+9.2f} | "
+        f"{sm.accuracy_mean:>7.2f} | {sm.recall_mean:>7.3f} | {sm.precision_mean:>6.3f} | {sm.f1_mean:>6.3f}"
     )
+
+
 
 
 # ── Evaluation engine ─────────────────────────────────────────────────────
@@ -151,7 +185,7 @@ def run_eval_harness(
 
     for i, entry in enumerate(entries):
         try:
-            _process_entry(entry, enhance_fn, sr, align, results)
+            _process_entry(entry, enhance_fn, sr, align, results, manifest_path=manifest_path)
         except Exception as exc:
             logger.warning("Failed on entry %d (%s): %s", i, entry.noisy, exc)
 
@@ -173,11 +207,28 @@ def _process_entry(
     sr: int,
     align: bool,
     results: EvalResults,
+    manifest_path: str | Path | None = None,
 ) -> None:
     """Process a single manifest entry and accumulate metrics."""
     # Load audio
-    noisy, sr_n = sf.read(entry.noisy, dtype="float32")
-    clean, sr_c = sf.read(entry.clean, dtype="float32")
+    noisy_path = Path(entry.noisy)
+    if not noisy_path.exists() and manifest_path is not None:
+        m_dir = Path(manifest_path).resolve().parent
+        if (m_dir / noisy_path).exists():
+            noisy_path = m_dir / noisy_path
+        elif (m_dir.parent / noisy_path).exists():
+            noisy_path = m_dir.parent / noisy_path
+
+    clean_path = Path(entry.clean)
+    if not clean_path.exists() and manifest_path is not None:
+        m_dir = Path(manifest_path).resolve().parent
+        if (m_dir / clean_path).exists():
+            clean_path = m_dir / clean_path
+        elif (m_dir.parent / clean_path).exists():
+            clean_path = m_dir.parent / clean_path
+
+    noisy, sr_n = sf.read(str(noisy_path), dtype="float32")
+    clean, sr_c = sf.read(str(clean_path), dtype="float32")
 
     # Mono safety
     if noisy.ndim > 1:
@@ -224,4 +275,11 @@ def _process_entry(
         if output_metrics.stoi is not None:
             sm.stoi_out_scores.append(output_metrics.stoi)
 
+        sm.si_snr_in_scores.append(input_metrics.si_snr)
         sm.si_snr_out_scores.append(output_metrics.si_snr)
+        sm.accuracy_scores.append(output_metrics.accuracy)
+        sm.precision_scores.append(output_metrics.precision)
+        sm.recall_scores.append(output_metrics.recall)
+        sm.f1_scores.append(output_metrics.f1_score)
+
+

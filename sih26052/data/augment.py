@@ -79,7 +79,8 @@ def band_limit(
     normalized_cutoff = cutoff / nyquist
     # 63-tap FIR — good tradeoff between sharpness and artifacts
     b = firwin(63, normalized_cutoff, window="hamming")
-    return lfilter(b, 1.0, audio).astype(np.float32)
+    filtered = lfilter(b, 1.0, audio)
+    return np.asarray(filtered, dtype=np.float32)
 
 
 def mild_clipping(

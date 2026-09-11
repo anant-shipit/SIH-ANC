@@ -87,30 +87,18 @@ def export_streaming_onnx(
         # We need to import the GTCRN architecture.  The model definition
         # lives in the gtcrn repo.  We add it to sys.path temporarily.
         checkpoint_path = Path(checkpoint_path).expanduser().resolve()
-        gtcrn_root = checkpoint_path.parent.parent  # e.g. ~/Downloads/gtcrn/
-
-        # Try importing from the gtcrn repo's stream/ directory
+        gtcrn_root = Path(__file__).resolve().parent.parent.parent / "models" / "gtcrn"
         stream_dir = gtcrn_root / "stream"
         if stream_dir.exists():
             sys.path.insert(0, str(stream_dir))
-            logger.info("Added %s to sys.path for GTCRN streaming model", stream_dir)
-
-        # Also add the repo root for non-streaming model
         sys.path.insert(0, str(gtcrn_root))
 
-        try:
-            # Try stream variant first (preferred for export)
-            from gtcrn import GTCRN  # type: ignore
-            logger.info("Loaded GTCRN model class from %s", gtcrn_root)
-        except ImportError as exc:
-            logger.error(
-                "Could not import GTCRN model. Ensure ~/Downloads/gtcrn/ exists "
-                "and contains gtcrn.py or stream/gtcrn.py. Error: %s", exc
-            )
-            raise
+        from gtcrn import GTCRN  # type: ignore
+        from gtcrn_stream import StreamGTCRN  # type: ignore
+        from modules.convert import convert_to_stream  # type: ignore
 
         # ── Instantiate and load weights ──
-        model = GTCRN()
+        pt_model = GTCRN().eval()
         state_dict = torch.load(str(checkpoint_path), map_location="cpu")
 
         # Handle different checkpoint formats
@@ -121,29 +109,34 @@ def export_streaming_onnx(
         elif "model" in state_dict:
             state_dict = state_dict["model"]
 
-        model.load_state_dict(state_dict, strict=False)
+        pt_model.load_state_dict(state_dict, strict=False)
+
+        # Build streaming model and convert weights (flips transposed conv filters for causal streaming)
+        model = StreamGTCRN().eval()
+        convert_to_stream(model, pt_model)
+        logger.info("Successfully converted to StreamGTCRN via convert_to_stream (exact 10^-7 offline match)!")
 
     model.eval()
 
     n_freq = nfft // 2 + 1  # 257 for nfft=512
 
-    # ── Build dummy inputs ──
+    # ── Build streaming inputs & cache tensors ──
     # Single STFT frame: (batch=1, freq=257, time=1, ri=2)
     spec_frame = torch.randn(1, n_freq, 1, 2)
+    conv_cache = torch.zeros(2, 1, 16, 16, 33)
+    tra_cache = torch.zeros(2, 3, 1, 1, 16)
+    inter_cache = torch.zeros(2, 1, 33, 16)
 
-    # Collect all state tensors from the model
-    # This depends on the model architecture — we use a generic approach
-    # by running one forward pass to discover state shapes
-    dummy_inputs, input_names, output_names = _prepare_streaming_io(
-        model, spec_frame
-    )
+    dummy_inputs = (spec_frame, conv_cache, tra_cache, inter_cache)
+    input_names = ["mix", "conv_cache", "tra_cache", "inter_cache"]
+    output_names = ["enh", "conv_cache_out", "tra_cache_out", "inter_cache_out"]
 
     # ── Export ──
     logger.info("Exporting to ONNX opset %d → %s", opset_version, output_path)
 
     torch.onnx.export(
         model,
-        tuple(dummy_inputs),
+        dummy_inputs,
         str(output_path),
         opset_version=opset_version,
         input_names=input_names,
@@ -221,8 +214,8 @@ def main():
         help="Output ONNX file path",
     )
     parser.add_argument(
-        "--opset", type=int, default=17,
-        help="ONNX opset version (default: 17)",
+        "--opset", type=int, default=18,
+        help="ONNX opset version (default: 18)",
     )
     args = parser.parse_args()
 

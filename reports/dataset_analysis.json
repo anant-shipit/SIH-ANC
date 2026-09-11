@@ -1,0 +1,327 @@
+{
+  "voicebank": {
+    "dataset": "VoiceBank",
+    "path": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/Datasets/VoiceBank",
+    "train_set": {
+      "path": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/Datasets/VoiceBank/clean_trainset_28spk_wav",
+      "speakers_count": 28,
+      "speakers": [
+        "p226",
+        "p227",
+        "p228",
+        "p230",
+        "p231",
+        "p233",
+        "p236",
+        "p239",
+        "p243",
+        "p244",
+        "p250",
+        "p254",
+        "p256",
+        "p258",
+        "p259",
+        "p267",
+        "p268",
+        "p269",
+        "p270",
+        "p273",
+        "p274",
+        "p276",
+        "p277",
+        "p278",
+        "p279",
+        "p282",
+        "p286",
+        "p287"
+      ],
+      "total_files": 11572,
+      "usable_files": 11572,
+      "corrupt_files": 0,
+      "total_duration_s": 33808.63,
+      "total_duration_h": 9.39,
+      "avg_duration_s": 2.92,
+      "sample_rates": {
+        "16000": 11572
+      },
+      "channels": {
+        "1": 11572
+      }
+    },
+    "test_set": {
+      "path": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/Datasets/VoiceBank/clean_testset_wav",
+      "speakers_count": 2,
+      "speakers": [
+        "p232",
+        "p257"
+      ],
+      "total_files": 824,
+      "usable_files": 824,
+      "corrupt_files": 0,
+      "total_duration_s": 2072.05,
+      "total_duration_h": 0.58,
+      "avg_duration_s": 2.51,
+      "sample_rates": {
+        "16000": 824
+      },
+      "channels": {
+        "1": 824
+      }
+    },
+    "speaker_leakage": false
+  },
+  "esc50": {
+    "dataset": "ESC-50",
+    "path": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/Datasets/ESC50/ESC-50-master",
+    "total_categories": 50,
+    "all_categories": [
+      "airplane",
+      "breathing",
+      "brushing_teeth",
+      "can_opening",
+      "car_horn",
+      "cat",
+      "chainsaw",
+      "chirping_birds",
+      "church_bells",
+      "clapping",
+      "clock_alarm",
+      "clock_tick",
+      "coughing",
+      "cow",
+      "crackling_fire",
+      "crickets",
+      "crow",
+      "crying_baby",
+      "dog",
+      "door_wood_creaks",
+      "door_wood_knock",
+      "drinking_sipping",
+      "engine",
+      "fireworks",
+      "footsteps",
+      "frog",
+      "glass_breaking",
+      "hand_saw",
+      "helicopter",
+      "hen",
+      "insects",
+      "keyboard_typing",
+      "laughing",
+      "mouse_click",
+      "pig",
+      "pouring_water",
+      "rain",
+      "rooster",
+      "sea_waves",
+      "sheep",
+      "siren",
+      "sneezing",
+      "snoring",
+      "thunderstorm",
+      "toilet_flush",
+      "train",
+      "vacuum_cleaner",
+      "washing_machine",
+      "water_drops",
+      "wind"
+    ],
+    "folds": {
+      "1": 400,
+      "2": 400,
+      "3": 400,
+      "4": 400,
+      "5": 400
+    },
+    "selected_classes_present": {
+      "helicopter": 40,
+      "airplane": 40,
+      "siren": 40,
+      "car_horn": 40,
+      "engine": 40,
+      "train": 40,
+      "chainsaw": 40,
+      "hand_saw": 40,
+      "fireworks": 40,
+      "crackling_fire": 40,
+      "rain": 40,
+      "thunderstorm": 40,
+      "wind": 40,
+      "sea_waves": 40,
+      "water_drops": 40,
+      "footsteps": 40,
+      "breathing": 40,
+      "coughing": 40,
+      "clapping": 40,
+      "laughing": 40,
+      "sneezing": 40,
+      "snoring": 40,
+      "crying_baby": 40
+    },
+    "selected_classes_missing": [
+      "gun_shot"
+    ],
+    "selected_audio_stats": {
+      "total_files": 920,
+      "usable_files": 920,
+      "corrupt_files": 0,
+      "total_duration_s": 4600.0,
+      "total_duration_h": 1.28,
+      "avg_duration_s": 5.0,
+      "sample_rates": {
+        "44100": 920
+      },
+      "channels": {
+        "1": 920
+      }
+    }
+  },
+  "urbansound8k": {
+    "dataset": "UrbanSound8K",
+    "path": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/Datasets/urbansound8k",
+    "all_classes": {
+      "dog_bark": 1000,
+      "children_playing": 1000,
+      "car_horn": 429,
+      "air_conditioner": 1000,
+      "street_music": 1000,
+      "gun_shot": 374,
+      "siren": 929,
+      "engine_idling": 1000,
+      "jackhammer": 1000,
+      "drilling": 1000
+    },
+    "folds": {
+      "5": 936,
+      "10": 837,
+      "2": 888,
+      "6": 823,
+      "1": 873,
+      "9": 816,
+      "7": 838,
+      "4": 990,
+      "3": 925,
+      "8": 806
+    },
+    "selected_classes_counts": {
+      "gun_shot": 374,
+      "siren": 929,
+      "engine_idling": 1000,
+      "jackhammer": 1000,
+      "drilling": 1000,
+      "car_horn": 429
+    },
+    "selected_audio_stats": {
+      "total_files": 4732,
+      "usable_files": 4732,
+      "corrupt_files": 0,
+      "total_duration_s": 16395.58,
+      "total_duration_h": 4.55,
+      "avg_duration_s": 3.46,
+      "sample_rates": {
+        "44100": 2762,
+        "48000": 1386,
+        "96000": 464,
+        "22050": 27,
+        "16000": 39,
+        "192000": 17,
+        "11025": 9,
+        "24000": 28
+      },
+      "channels": {
+        "2": 4280,
+        "1": 452
+      }
+    }
+  },
+  "gunshot_audio_dataset": {
+    "dataset": "Gunshot_Audio_Dataset",
+    "path": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/Datasets/Gunshot_Audio_Dataset",
+    "weapons": {
+      "AK-12": 98,
+      "AK-47": 72,
+      "IMI Desert Eagle": 100,
+      "M16": 100,
+      "M249": 99,
+      "M4": 100,
+      "MG-42": 100,
+      "MP5": 100,
+      "Zastava M92": 82
+    },
+    "total_weapons": 9,
+    "audio_stats": {
+      "total_files": 851,
+      "usable_files": 851,
+      "corrupt_files": 0,
+      "total_duration_s": 2585.0,
+      "total_duration_h": 0.72,
+      "avg_duration_s": 3.04,
+      "sample_rates": {
+        "44100": 197,
+        "48000": 654
+      },
+      "channels": {
+        "2": 851
+      }
+    }
+  },
+  "edge_collected_guns": {
+    "dataset": "edge-collected-gunshot-audio",
+    "path": "/home/urcheetahh/ANC Microphone SIH/SIH-ANC/Datasets/edge-collected-gunshot-audio (1)",
+    "subfolders": {
+      "38s&ws_dot38_caliber": 503,
+      "glock_17_9mm_caliber": 669,
+      "remington_870_12_gauge": 379,
+      "ruger_ar_556_dot223_caliber": 597
+    },
+    "metadata_summary": {
+      "total_metadata_rows": 2148,
+      "labels": {
+        "9mm": 669,
+        "38cal": 503,
+        "AR15": 597,
+        "12gauge": 379
+      },
+      "firearms": {
+        "Glock 17": 669,
+        "Smith & Wesson": 503,
+        "Ruger 556": 597,
+        "Remington 870": 379
+      },
+      "calibers": {
+        "9mm": 669,
+        ".38 cal": 503,
+        ".223 mm": 597,
+        "12 guage": 379
+      },
+      "sessions": {
+        "1": 1512,
+        "2": 636
+      }
+    },
+    "audio_stats": {
+      "total_files": 2148,
+      "usable_files": 2148,
+      "corrupt_files": 0,
+      "total_duration_s": 9585.0,
+      "total_duration_h": 2.66,
+      "avg_duration_s": 4.46,
+      "sample_rates": {
+        "44100": 2148
+      },
+      "channels": {
+        "1": 2148
+      }
+    }
+  },
+  "demand": {
+    "status": "not_installed"
+  },
+  "summary": {
+    "total_gunfire_recordings": 3373,
+    "total_clean_train": 11572,
+    "total_clean_test": 824,
+    "total_selected_esc50": 920,
+    "total_selected_us8k": 4732
+  }
+}

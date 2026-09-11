@@ -138,3 +138,22 @@ class TestIdentityGate:
         assert result.pesq is not None, "PESQ returned None for identity test"
         assert result.pesq > 4.0, f"Identity PESQ = {result.pesq:.2f}, expected > 4.0"
 
+
+class TestEvalResults:
+    def test_format_table(self):
+        """Verify format_table generates valid string with expected headers and rows."""
+        from sih26052.eval.harness import EvalResults, SubsetMetrics
+
+        results = EvalResults()
+        results.subsets["stationary"] = SubsetMetrics("stationary")
+        results.subsets["stationary"].pesq_in_scores = [2.0]
+        results.subsets["stationary"].pesq_out_scores = [2.5]
+        results.subsets["stationary"].count = 1
+
+        table = results.format_table()
+        assert "Subset" in table
+        assert "stationary" in table
+        assert "Overall" in table
+        assert "PESQ in" in table
+
+

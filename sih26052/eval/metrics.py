@@ -127,13 +127,102 @@ def stoi_score(
         return None
 
 
+# ── Classification & Voice Activity Detection Metrics ────────────────────────
+
+def compute_classification_metrics(
+    reference: np.ndarray,
+    estimate: np.ndarray,
+    frame_len: int = 512,
+    hop_len: int = 256,
+    threshold_db: float = -35.0,
+) -> dict[str, float]:
+    """Compute frame-level Voice Activity Detection classification metrics.
+
+    Metrics:
+        accuracy: (TP + TN) / Total (%)
+        precision: TP / (TP + FP) (0.0 to 1.0)
+        recall: TP / (TP + FN) (Speech Preservation Rate: 0.0 to 1.0)
+        f1_score: 2 * Prec * Rec / (Prec + Rec)
+        noise_suppression: TN / (TN + FP) (Specificity: %)
+    """
+    ref = reference.mean(axis=-1) if reference.ndim > 1 else reference
+    est = estimate.mean(axis=-1) if estimate.ndim > 1 else estimate
+    min_len = min(len(ref), len(est))
+    if min_len < frame_len:
+        return {
+            "accuracy": 100.0, "precision": 1.0, "recall": 1.0,
+            "f1_score": 1.0, "noise_suppression": 100.0,
+        }
+
+    n_frames = 1 + (min_len - frame_len) // hop_len
+    if n_frames <= 0:
+        return {
+            "accuracy": 100.0, "precision": 1.0, "recall": 1.0,
+            "f1_score": 1.0, "noise_suppression": 100.0,
+        }
+
+    ref_frames = np.lib.stride_tricks.as_strided(
+        ref, shape=(n_frames, frame_len),
+        strides=(ref.strides[0] * hop_len, ref.strides[0]),
+    )
+    est_frames = np.lib.stride_tricks.as_strided(
+        est, shape=(n_frames, frame_len),
+        strides=(est.strides[0] * hop_len, est.strides[0]),
+    )
+
+    ref_energy = np.mean(ref_frames.astype(np.float64) ** 2, axis=1) + 1e-12
+    est_energy = np.mean(est_frames.astype(np.float64) ** 2, axis=1) + 1e-12
+
+    ref_peak = np.max(ref_energy)
+    est_peak = np.max(est_energy)
+
+    ref_db = 10.0 * np.log10(ref_energy / (ref_peak + 1e-12))
+    est_db = 10.0 * np.log10(est_energy / (est_peak + 1e-12))
+
+    vad_ref = ref_db > threshold_db
+    vad_est = est_db > threshold_db
+
+    tp = float(np.sum((vad_ref == True) & (vad_est == True)))
+    fp = float(np.sum((vad_ref == False) & (vad_est == True)))
+    tn = float(np.sum((vad_ref == False) & (vad_est == False)))
+    fn = float(np.sum((vad_ref == True) & (vad_est == False)))
+    total = tp + fp + tn + fn
+
+    accuracy = float((tp + tn) / (total + 1e-12) * 100.0)
+    precision = float(tp / (tp + fp + 1e-12))
+    recall = float(tp / (tp + fn + 1e-12))
+    f1 = float(2.0 * precision * recall / (precision + recall + 1e-12))
+    noise_suppression = float(tn / (tn + fp + 1e-12) * 100.0)
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1_score": f1,
+        "noise_suppression": noise_suppression,
+        "tp": tp,
+        "fp": fp,
+        "tn": tn,
+        "fn": fn,
+    }
+
+
 # ── All-in-one ─────────────────────────────────────────────────────────────
 
 class MetricResult(NamedTuple):
-    """Results from computing all three metrics on one pair."""
+    """Results from computing acoustic and classification metrics on one pair."""
     pesq: float | None
     stoi: float | None
     si_snr: float
+    accuracy: float = 0.0
+    precision: float = 0.0
+    recall: float = 0.0
+    f1_score: float = 0.0
+    noise_suppression: float = 0.0
+    tp: float = 0.0
+    fp: float = 0.0
+    tn: float = 0.0
+    fn: float = 0.0
 
 
 def compute_all_metrics(
@@ -141,7 +230,7 @@ def compute_all_metrics(
     degraded: np.ndarray,
     sr: int = 16000,
 ) -> MetricResult:
-    """Compute PESQ, STOI, and SI-SNR for a single (reference, degraded) pair.
+    """Compute PESQ, STOI, SI-SNR, Accuracy, Precision, Recall, and F1 for a single pair.
 
     Ensures both signals are the same length (truncates the longer one).
     """
@@ -150,8 +239,20 @@ def compute_all_metrics(
     ref = reference[:min_len].astype(np.float32)
     deg = degraded[:min_len].astype(np.float32)
 
+    clf = compute_classification_metrics(ref, deg)
+
     return MetricResult(
         pesq=pesq_score(ref, deg, sr),
         stoi=stoi_score(ref, deg, sr),
         si_snr=si_snr(ref, deg),
+        accuracy=clf["accuracy"],
+        precision=clf["precision"],
+        recall=clf["recall"],
+        f1_score=clf["f1_score"],
+        noise_suppression=clf["noise_suppression"],
+        tp=clf.get("tp", 0.0),
+        fp=clf.get("fp", 0.0),
+        tn=clf.get("tn", 0.0),
+        fn=clf.get("fn", 0.0),
     )
+

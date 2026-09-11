@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -62,13 +63,14 @@ class StreamingEnhancer:
         # ── Discover I/O ──
         self._input_names = [inp.name for inp in self._session.get_inputs()]
         self._output_names = [out.name for out in self._session.get_outputs()]
+        self._spec_input_name = self._input_names[0]
+        self._enhanced_output_name = self._output_names[0]
 
         # ── Initialize states to zero ──
         self._states: dict[str, np.ndarray] = {}
-        for inp in self._session.get_inputs():
-            if inp.name != "spec_frame":
-                shape = [d if isinstance(d, int) else 1 for d in inp.shape]
-                self._states[inp.name] = np.zeros(shape, dtype=np.float32)
+        for inp in self._session.get_inputs()[1:]:
+            shape = [d if isinstance(d, int) else 1 for d in inp.shape]
+            self._states[inp.name] = np.zeros(shape, dtype=np.float32)
 
         logger.info(
             "StreamingEnhancer loaded: %s (%d inputs, %d outputs, %d state tensors)",
@@ -99,21 +101,21 @@ class StreamingEnhancer:
         spec_input = spec[np.newaxis, :, np.newaxis, :]
 
         # Build feed dict
-        feed = {"spec_frame": spec_input}
+        feed = {self._spec_input_name: spec_input}
         feed.update(self._states)
 
         # Run inference
-        outputs = self._session.run(self._output_names, feed)
+        outputs: list[np.ndarray] = cast(
+            list[np.ndarray],
+            self._session.run(self._output_names, feed),
+        )
 
         # Extract enhanced frame
         enhanced = outputs[0]  # shape: (1, n_freq, 1, 2)
         enhanced = enhanced[0, :, 0, :]  # → (n_freq, 2)
 
         # Update states: output states become input states for next frame
-        for i, name in enumerate(self._output_names):
-            if name == "enhanced_frame":
-                continue
-            # Map output name back to input name
+        for i, name in enumerate(self._output_names[1:], start=1):
             in_name = name.replace("_out", "")
             if in_name in self._states:
                 self._states[in_name] = outputs[i]

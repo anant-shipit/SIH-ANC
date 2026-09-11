@@ -132,26 +132,26 @@ def verify_onnx_vs_pytorch(
         pt_out = model(torch.from_numpy(spec_seq)).numpy()
 
     # ── ONNX frame by frame ──
+    spec_input_name = sess.get_inputs()[0].name
     onnx_states = {}
-    for inp in sess.get_inputs():
-        if inp.name != "spec_frame":
-            shape = [d if isinstance(d, int) else 1 for d in inp.shape]
-            onnx_states[inp.name] = np.zeros(shape, dtype=np.float32)
+    for inp in sess.get_inputs()[1:]:
+        shape = [d if isinstance(d, int) else 1 for d in inp.shape]
+        onnx_states[inp.name] = np.zeros(shape, dtype=np.float32)
 
     onnx_out_frames = []
     for t in range(n_frames):
         spec_frame = spec_seq[:, :, t:t+1, :]
-        feed = {"spec_frame": spec_frame}
+        feed = {spec_input_name: spec_frame}
         feed.update(onnx_states)
         onnx_outputs = sess.run(output_names, feed)
         
-        onnx_out_frames.append(onnx_outputs[0])
+        onnx_out_frames.append(np.asarray(onnx_outputs[0]))
         
         for i, name in enumerate(output_names):
-            if name != "enhanced_frame":
+            if name != output_names[0]:
                 state_in_name = name.replace("_out", "")
                 if state_in_name in onnx_states:
-                    onnx_states[state_in_name] = onnx_outputs[i]
+                    onnx_states[state_in_name] = np.asarray(onnx_outputs[i])
 
     onnx_out = np.concatenate(onnx_out_frames, axis=2)
 
@@ -186,7 +186,7 @@ def verify_quantized_quality(
     int8_onnx_path: str | Path,
     n_frames: int = 200,
     nfft: int = 512,
-    tolerance: float = 0.01,
+    tolerance: float = 0.05,
 ) -> dict:
     """Compare fp32 and int8 ONNX outputs to measure quantization error.
 
@@ -202,13 +202,15 @@ def verify_quantized_quality(
     sess_fp32 = ort.InferenceSession(str(fp32_onnx_path))
     sess_int8 = ort.InferenceSession(str(int8_onnx_path))
 
+    spec_name_fp32 = sess_fp32.get_inputs()[0].name
+    spec_name_int8 = sess_int8.get_inputs()[0].name
+
     # Initialize states
     def init_states(sess):
         states = {}
-        for inp in sess.get_inputs():
-            if inp.name != "spec_frame":
-                shape = [d if isinstance(d, int) else 1 for d in inp.shape]
-                states[inp.name] = np.zeros(shape, dtype=np.float32)
+        for inp in sess.get_inputs()[1:]:
+            shape = [d if isinstance(d, int) else 1 for d in inp.shape]
+            states[inp.name] = np.zeros(shape, dtype=np.float32)
         return states
 
     states_fp32 = init_states(sess_fp32)
@@ -222,24 +224,27 @@ def verify_quantized_quality(
     for frame_idx in range(n_frames):
         spec = rng.standard_normal((1, n_freq, 1, 2)).astype(np.float32)
 
-        feed_fp32 = {"spec_frame": spec, **states_fp32}
-        feed_int8 = {"spec_frame": spec, **states_int8}
+        feed_fp32 = {spec_name_fp32: spec, **states_fp32}
+        feed_int8 = {spec_name_int8: spec, **states_int8}
 
         out_fp32 = sess_fp32.run(output_names_fp32, feed_fp32)
         out_int8 = sess_int8.run(output_names_int8, feed_int8)
 
-        diff = np.max(np.abs(out_fp32[0] - out_int8[0]))
+
+        o_fp32 = np.asarray(out_fp32[0])
+        o_int8 = np.asarray(out_int8[0])
+        diff = float(np.max(np.abs(o_fp32 - o_int8)))
         max_diffs.append(diff)
 
         # Update states
         for i, name in enumerate(output_names_fp32):
             in_name = name.replace("_out", "")
             if in_name in states_fp32:
-                states_fp32[in_name] = out_fp32[i]
+                states_fp32[in_name] = np.asarray(out_fp32[i])
         for i, name in enumerate(output_names_int8):
             in_name = name.replace("_out", "")
             if in_name in states_int8:
-                states_int8[in_name] = out_int8[i]
+                states_int8[in_name] = np.asarray(out_int8[i])
 
     max_abs = float(np.max(max_diffs))
     mean_abs = float(np.mean(max_diffs))

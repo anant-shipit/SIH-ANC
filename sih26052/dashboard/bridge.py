@@ -21,6 +21,7 @@ import logging
 import queue
 import threading
 import time
+from typing import Any
 
 import numpy as np
 
@@ -101,7 +102,7 @@ class DashboardBridge:
 
     def _serialize(self, metrics: dict) -> dict:
         """Convert metrics dict to JSON-serializable format."""
-        serialized = {}
+        serialized: dict[str, Any] = {}
         for key, value in metrics.items():
             if isinstance(value, np.ndarray):
                 # Downsample spectrum for transmission (64 bins is enough for display)
