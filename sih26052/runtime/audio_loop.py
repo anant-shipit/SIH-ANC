@@ -62,7 +62,10 @@ class AudioLoop:
         self,
         onnx_path: str | Path,
         device: int | None = None,
+        input_device: int | str | None = None,
+        output_device: int | str | None = None,
         sr: int = 16000,
+        native_sr: int = 16000,
         nfft: int = 512,
         hop: int = 256,
         queue_size: int = 100,
@@ -74,8 +77,24 @@ class AudioLoop:
         from sih26052.runtime.led_status import LEDStatus
 
         self.sr = sr
+        self.native_sr = native_sr
         self.hop = hop
+        # Prefer explicit input/output device; fall back to shared device index
+        self.input_device = input_device if input_device is not None else device
+        self.output_device = output_device if output_device is not None else device
         self.device = device
+
+        # ── Resampling ratio: native hw rate → model rate ──
+        # e.g. native_sr=48000, sr=16000 → ratio=3 (decimate 3:1 / interpolate 1:3)
+        if native_sr % sr != 0:
+            raise ValueError(
+                f"native_sr ({native_sr}) must be an integer multiple of sr ({sr}). "
+                f"Got ratio {native_sr / sr:.2f}."
+            )
+        self._resample_ratio: int = native_sr // sr  # 1 = pass-through, 3 = 48k→16k
+
+        # Native hop size: how many samples the hardware delivers per GTCRN hop
+        self._native_hop: int = hop * self._resample_ratio
 
         # ── Processing chain ──
         self.ola = OverlapAdd(nfft=nfft, hop=hop)
@@ -99,21 +118,29 @@ class AudioLoop:
         self.frame_count = 0
         self.start_time = 0.0
 
-        # ── Preallocated buffers ──
+        # ── Preallocated buffers (all at model rate = sr) ──
         self._mono_buffer = np.zeros(hop, dtype=np.float32)
         self._ref_buffer = np.zeros(hop, dtype=np.float32)
         self._raw_buffer = np.zeros(hop, dtype=np.float32)
         self._prev_mono_buffer = np.zeros(hop, dtype=np.float32)
         self._enhanced_buffer = np.zeros(hop, dtype=np.float32)
+        # Native-rate output buffer (upsampled) pre-allocated
+        self._native_out_buf = np.zeros(self._native_hop, dtype=np.float32)
 
     def _callback(self, indata, outdata, frames, time_info, status):
         """Sounddevice stream callback.
 
         This runs in a separate high-priority thread.  It MUST NOT
         allocate memory, print, or call any blocking function.
+
+        When native_sr > sr (e.g. 48 kHz hardware, 16 kHz model):
+          - Input  : decimate by ratio (simple slice — FIR pre-filter not needed at
+                     ratio=3 because the I2S hardware already band-limits to 8 kHz)
+          - Output : repeat-upsample by ratio (zero-order hold — acceptable latency
+                     at 16 kHz block size; avoids malloc in callback)
         """
         frame_start = time.monotonic()
-        
+
         # ── Track xruns ──
         if status:
             self.xrun_count += 1
@@ -121,9 +148,13 @@ class AudioLoop:
         self.frame_count += 1
 
         # ── Get input channels (Dual INMP441: Left = Primary Mic, Right = Ref Mic) ──
-        np.copyto(self._mono_buffer, indata[:, 0])
+        # Decimate from native_sr to sr by taking every Nth sample
+        ratio = self._resample_ratio
+        primary_ch = indata[:, 0]
+        np.copyto(self._mono_buffer, primary_ch[::ratio] if ratio > 1 else primary_ch)
         if indata.shape[1] > 1:
-            np.copyto(self._ref_buffer, indata[:, 1])
+            ref_ch = indata[:, 1]
+            np.copyto(self._ref_buffer, ref_ch[::ratio] if ratio > 1 else ref_ch)
         mono_in = self._mono_buffer
 
         # ── STFT analysis ──
@@ -148,10 +179,18 @@ class AudioLoop:
             self._raw_buffer, self._enhanced_buffer
         )
 
-        # ── Write to output ──
-        outdata[:, 0] = output
-        if outdata.shape[1] > 1:
-            outdata[:, 1] = output  # duplicate to stereo if needed
+        # ── Write to output (upsample back to native_sr if needed) ──
+        ratio = self._resample_ratio
+        if ratio > 1:
+            # Zero-order hold: repeat each sample `ratio` times (no malloc)
+            np.copyto(self._native_out_buf, np.repeat(output, ratio))
+            outdata[:, 0] = self._native_out_buf
+            if outdata.shape[1] > 1:
+                outdata[:, 1] = self._native_out_buf
+        else:
+            outdata[:, 0] = output
+            if outdata.shape[1] > 1:
+                outdata[:, 1] = output
 
         # Update LED 2 (GTCRN Filtered active mode) & LED 3 (Activity)
         if self.leds.enabled and self.frame_count % 5 == 0:
@@ -193,15 +232,32 @@ class AudioLoop:
         self.leds.set_enhancement_mode(self.ab_switch.is_enhanced)
 
         # ── Open stream ──
-        stream = sd.Stream(
-            device=self.device,
-            samplerate=self.sr,
-            blocksize=self.hop,
-            channels=2,
-            dtype="float32",
-            callback=self._callback,
-            latency=0.016,
-        )
+        # Use native_sr for the hardware stream; the callback decimates/interpolates.
+        # When input and output are on different devices (I2S mic + USB DAC),
+        # use separate InputStream + OutputStream instead of a duplex Stream.
+        use_duplex = (self.input_device == self.output_device)
+
+        if use_duplex:
+            stream = sd.Stream(
+                device=self.input_device,
+                samplerate=self.native_sr,
+                blocksize=self._native_hop,
+                channels=2,
+                dtype="float32",
+                callback=self._callback,
+                latency=0.064,
+            )
+        else:
+            # Separate capture (I2S mic card) and playback (USB sound card)
+            stream = sd.Stream(
+                device=(self.input_device, self.output_device),
+                samplerate=self.native_sr,
+                blocksize=self._native_hop,
+                channels=2,
+                dtype="float32",
+                callback=self._callback,
+                latency=0.064,
+            )
 
         self.start_time = time.monotonic()
 
@@ -286,16 +342,40 @@ class AudioLoop:
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Real-time speech enhancement.")
+    parser = argparse.ArgumentParser(
+        description="Real-time speech enhancement.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Default (auto-detect, 16 kHz hardware like USB mic):
+  python -m sih26052.runtime.audio_loop --onnx models/gtcrn_finetuned_stream_int8.onnx
+
+  # Dual I2S INMP441 (hw:0) + USB DAC (hw:1), both running at 48 kHz native:
+  python -m sih26052.runtime.audio_loop \\
+      --onnx models/gtcrn_finetuned_stream_int8.onnx \\
+      --input-device 0 --output-device 1 \\
+      --native-sr 48000 --sr 16000
+"""
+    )
     parser.add_argument("--onnx", type=Path, required=True, help="Streaming ONNX model")
-    parser.add_argument("--device", type=int, default=None, help="Audio device index")
-    parser.add_argument("--sr", type=int, default=16000, help="Sample rate")
-    parser.add_argument("--hop", type=int, default=256, help="Hop size")
+    parser.add_argument("--device", type=int, default=None,
+                        help="Shared audio device index (used when input and output are the same device)")
+    parser.add_argument("--input-device", default=None,
+                        help="Capture device index or ALSA name (e.g. 0 or 'plughw:0'). Overrides --device for input.")
+    parser.add_argument("--output-device", default=None,
+                        help="Playback device index or ALSA name (e.g. 1 or 'plughw:1'). Overrides --device for output.")
+    parser.add_argument("--sr", type=int, default=16000,
+                        help="Model sample rate — must match the ONNX model (default: 16000)")
+    parser.add_argument("--native-sr", type=int, default=None,
+                        help="Hardware sample rate. Defaults to --sr. Set to 48000 for I2S INMP441 on Pi 5.")
+    parser.add_argument("--hop", type=int, default=256, help="Hop size (frames per callback block at model rate)")
     parser.add_argument("--duration", type=float, default=None, help="Duration (seconds)")
     parser.add_argument("--impulse-gate", action="store_true", help="Enable the impulse gate")
     parser.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
-    parser.add_argument("--input-file", type=Path, default=None, help="Process a WAV file offline instead of using sounddevice")
-    parser.add_argument("--output-file", type=Path, default=None, help="Output WAV file path for offline processing")
+    parser.add_argument("--input-file", type=Path, default=None,
+                        help="Process a WAV file offline instead of live stream")
+    parser.add_argument("--output-file", type=Path, default=None,
+                        help="Output WAV file for offline processing")
     args = parser.parse_args()
 
     if args.list_devices:
@@ -305,10 +385,25 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+    # --native-sr defaults to --sr (pass-through, no resampling)
+    native_sr = args.native_sr if args.native_sr is not None else args.sr
+
+    # Parse device args — allow int or string (ALSA device name)
+    def parse_device(val):
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return val  # ALSA name string like 'plughw:0'
+
     loop = AudioLoop(
         onnx_path=args.onnx,
         device=args.device,
+        input_device=parse_device(args.input_device),
+        output_device=parse_device(args.output_device),
         sr=args.sr,
+        native_sr=native_sr,
         hop=args.hop,
         use_impulse_gate=args.impulse_gate,
     )
