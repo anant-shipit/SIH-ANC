@@ -17,7 +17,10 @@ set -euo pipefail
 REPO_URL="https://github.com/anant-shipit/SIH-ANC.git"
 REPO_DIR="$HOME/SIH-ANC"
 VENV_DIR="$REPO_DIR/venv"
-MODEL_PATH="$REPO_DIR/models/gtcrn_stream_int8.onnx"
+MODEL_PATH="$REPO_DIR/models/gtcrn_finetuned_stream_int8.onnx"
+if [ ! -f "$MODEL_PATH" ] && [ -f "$REPO_DIR/models/gtcrn_stream_int8.onnx" ]; then
+    MODEL_PATH="$REPO_DIR/models/gtcrn_stream_int8.onnx"
+fi
 
 # ── Color output ─────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -197,6 +200,7 @@ User=$USER
 WorkingDirectory=$REPO_DIR
 ExecStart=$VENV_DIR/bin/python3 -m sih26052.runtime.audio_loop \\
     --onnx $MODEL_PATH \\
+    --native-sr 48000 \\
     --impulse-gate
 Restart=on-failure
 RestartSec=5
