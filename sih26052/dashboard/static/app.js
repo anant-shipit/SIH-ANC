@@ -92,6 +92,10 @@ const dom = {
     stProcTime: document.getElementById('st-proc-time'),
     stRtf: document.getElementById('st-rtf'),
     stSnr: document.getElementById('st-snr'),
+    piHeadphoneStatus: document.getElementById('pi-headphone-status'),
+    btnPiPlayEnh: document.getElementById('btn-pi-play-enh'),
+    btnPiPlayRaw: document.getElementById('btn-pi-play-raw'),
+    btnPiStopPlayback: document.getElementById('btn-pi-stop-playback'),
 };
 
 // ── Utility: Safe Base64 to ArrayBuffer (No fetch CORS issues) ─────────────
@@ -450,6 +454,7 @@ function drawOscilloscopeCanvas() {
 
 // ── Studio Section (Collapsible & Robust) ──────────────────────────────────
 let selectedStudioFile = null;
+let selectedStudioPresetId = null;
 
 dom.studioCollapseTrigger.addEventListener('click', () => {
     const isHidden = dom.studioBody.style.display === 'none';
@@ -462,6 +467,7 @@ dom.btnBrowseFile.addEventListener('click', () => dom.fileInput.click());
 dom.fileInput.addEventListener('change', (e) => {
     if (e.target.files && e.target.files[0]) {
         selectedStudioFile = e.target.files[0];
+        selectedStudioPresetId = null;
         dom.fileChosenName.textContent = selectedStudioFile.name;
         dom.btnEnhanceFile.disabled = false;
     }
@@ -492,13 +498,20 @@ dom.btnLoadPreset.addEventListener('click', async () => {
         dom.btnLoadPreset.disabled = true;
         dom.btnLoadPreset.textContent = 'Loading...';
         const res = await fetch(`/api/preset/${presetId}`);
+        if (!res.ok) throw new Error('Preset not found');
         const data = await res.json();
 
         // Convert base64 data to blob
-        const audioBuf = dataUriToArrayBuffer(data.audio_url);
+        const audioBuf = dataUriToArrayBuffer(data.noisy_audio_url);
         selectedStudioFile = new Blob([audioBuf], { type: 'audio/wav' });
-        dom.fileChosenName.textContent = `${presetId}.wav (Sample Loaded)`;
+        selectedStudioPresetId = presetId;
+        dom.fileChosenName.textContent = `${presetId}.wav (Loaded)`;
         dom.btnEnhanceFile.disabled = false;
+
+        // If preset already contains enhanced audio, setup the player right away!
+        if (data.enhanced_audio_url) {
+            await setupStudioPlayerFromData(data);
+        }
     } catch (err) {
         alert('Failed to load sample: ' + err.message);
     } finally {
@@ -507,15 +520,63 @@ dom.btnLoadPreset.addEventListener('click', async () => {
     }
 });
 
+async function setupStudioPlayerFromData(data) {
+    try {
+        if (!state.studioAudioCtx) {
+            state.studioAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        const rawUrl = data.raw_audio_url || data.noisy_audio_url;
+        const enhUrl = data.enhanced_audio_url;
+
+        if (rawUrl) {
+            const rawBuf = dataUriToArrayBuffer(rawUrl);
+            state.studioRawBuffer = await state.studioAudioCtx.decodeAudioData(rawBuf);
+        }
+        if (enhUrl) {
+            const enhBuf = dataUriToArrayBuffer(enhUrl);
+            state.studioEnhBuffer = await state.studioAudioCtx.decodeAudioData(enhBuf);
+        }
+
+        const activeBuf = state.studioEnhBuffer || state.studioRawBuffer;
+        state.studioDuration = activeBuf ? activeBuf.duration : 0;
+
+        if (data.processing_time_ms !== undefined) {
+            dom.stProcTime.textContent = data.processing_time_ms.toFixed(0);
+        }
+        if (data.rtf !== undefined) {
+            dom.stRtf.textContent = `${data.rtf.toFixed(2)}x`;
+        }
+        if (data.metrics && data.metrics.snr_improvement_db !== undefined) {
+            dom.stSnr.textContent = `+${data.metrics.snr_improvement_db.toFixed(1)}`;
+        }
+
+        dom.studioPlayer.style.display = 'flex';
+        dom.studioTimeDisplay.textContent = `00:00 / ${formatTime(state.studioDuration)}`;
+        dom.piHeadphoneStatus.textContent = `Sample Ready (${state.studioDuration.toFixed(1)}s) • USB DAC 3.5mm`;
+        dom.piHeadphoneStatus.className = 'headphone-status-badge text-emerald';
+
+        state.studioMode = 'enh';
+        dom.abBtnEnh.classList.add('active');
+        dom.abBtnRaw.classList.remove('active');
+    } catch (err) {
+        console.error('Audio decode error:', err);
+    }
+}
+
 dom.btnEnhanceFile.addEventListener('click', async () => {
-    if (!selectedStudioFile) return;
+    if (!selectedStudioFile && !selectedStudioPresetId) return;
 
     try {
         dom.btnEnhanceFile.disabled = true;
-        dom.enhanceBtnText.textContent = 'Processing...';
+        dom.enhanceBtnText.textContent = '⚡ Processing on Pi...';
 
         const formData = new FormData();
-        formData.append('file', selectedStudioFile, 'input.wav');
+        if (selectedStudioFile && !selectedStudioPresetId) {
+            formData.append('file', selectedStudioFile, selectedStudioFile.name || 'input.wav');
+        } else if (selectedStudioPresetId) {
+            formData.append('preset_id', selectedStudioPresetId);
+        }
         formData.append('engine', 'onnx_stream_int8');
 
         const res = await fetch('/api/enhance', { method: 'POST', body: formData });
@@ -525,43 +586,75 @@ dom.btnEnhanceFile.addEventListener('click', async () => {
         }
 
         const data = await res.json();
-
-        // Initialize studio audio context
-        if (!state.studioAudioCtx) {
-            state.studioAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-
-        // Decode raw and enhanced buffers safely
-        const rawBuf = dataUriToArrayBuffer(data.raw_audio_url);
-        const enhBuf = dataUriToArrayBuffer(data.enhanced_audio_url);
-
-        state.studioRawBuffer = await state.studioAudioCtx.decodeAudioData(rawBuf);
-        state.studioEnhBuffer = await state.studioAudioCtx.decodeAudioData(enhBuf);
-        state.studioDuration = state.studioEnhBuffer.duration;
-
-        // Display metrics
-        dom.stProcTime.textContent = data.processing_time_ms.toFixed(0);
-        dom.stRtf.textContent = `${data.rtf.toFixed(2)}x`;
-        dom.stSnr.textContent = `+${data.metrics.snr_improvement_db.toFixed(1)}`;
-
-        // Show player
-        dom.studioPlayer.style.display = 'flex';
-        dom.studioTimeDisplay.textContent = `00:00 / ${formatTime(state.studioDuration)}`;
-
-        // Switch to enhanced mode
-        state.studioMode = 'enh';
-        dom.abBtnEnh.classList.add('active');
-        dom.abBtnRaw.classList.remove('active');
+        await setupStudioPlayerFromData(data);
 
     } catch (err) {
         alert('Enhancement error: ' + err.message);
     } finally {
         dom.btnEnhanceFile.disabled = false;
-        dom.enhanceBtnText.textContent = 'Enhance File';
+        dom.enhanceBtnText.textContent = '⚡ Process on Pi';
     }
 });
 
-// Studio Playback
+// ── Physical Pi Headphone Output Handlers ───────────────────────────────────
+dom.btnPiPlayEnh.addEventListener('click', async () => {
+    try {
+        dom.btnPiPlayEnh.disabled = true;
+        dom.piHeadphoneStatus.textContent = '🔊 Outputting Enhanced Audio to Pi Headphones...';
+        dom.piHeadphoneStatus.className = 'headphone-status-badge text-accent';
+
+        const formData = new FormData();
+        formData.append('mode', 'enhanced');
+        const res = await fetch('/api/hardware/play-sample', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Playback failed');
+
+        setTimeout(() => {
+            dom.btnPiPlayEnh.disabled = false;
+            dom.piHeadphoneStatus.textContent = `Playing Cleaned Audio on Headphones (${data.duration}s)...`;
+        }, 500);
+    } catch (err) {
+        alert('Pi Headphone Output Error: ' + err.message);
+        dom.piHeadphoneStatus.textContent = 'Error: ' + err.message;
+        dom.btnPiPlayEnh.disabled = false;
+    }
+});
+
+dom.btnPiPlayRaw.addEventListener('click', async () => {
+    try {
+        dom.btnPiPlayRaw.disabled = true;
+        dom.piHeadphoneStatus.textContent = '🔊 Outputting Raw Noisy Audio to Pi Headphones...';
+        dom.piHeadphoneStatus.className = 'headphone-status-badge';
+
+        const formData = new FormData();
+        formData.append('mode', 'raw');
+        const res = await fetch('/api/hardware/play-sample', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Playback failed');
+
+        setTimeout(() => {
+            dom.btnPiPlayRaw.disabled = false;
+            dom.piHeadphoneStatus.textContent = `Playing Raw Audio on Headphones (${data.duration}s)...`;
+        }, 500);
+    } catch (err) {
+        alert('Pi Headphone Output Error: ' + err.message);
+        dom.piHeadphoneStatus.textContent = 'Error: ' + err.message;
+        dom.btnPiPlayRaw.disabled = false;
+    }
+});
+
+dom.btnPiStopPlayback.addEventListener('click', async () => {
+    try {
+        await fetch('/api/hardware/stop-playback', { method: 'POST' });
+        dom.piHeadphoneStatus.textContent = 'Headphone output stopped';
+        dom.btnPiPlayEnh.disabled = false;
+        dom.btnPiPlayRaw.disabled = false;
+    } catch (err) {
+        console.warn('Stop error:', err);
+    }
+});
+
+// ── In-Browser Studio Playback ──────────────────────────────────────────────
 dom.btnStudioPlay.addEventListener('click', () => {
     if (state.studioIsPlaying) {
         stopStudioPlayback();
@@ -571,13 +664,14 @@ dom.btnStudioPlay.addEventListener('click', () => {
 });
 
 function startStudioPlayback() {
-    if (!state.studioAudioCtx || !state.studioEnhBuffer) return;
+    if (!state.studioAudioCtx || (!state.studioEnhBuffer && !state.studioRawBuffer)) return;
 
     if (state.studioAudioCtx.state === 'suspended') {
         state.studioAudioCtx.resume();
     }
 
     const activeBuffer = state.studioMode === 'enh' ? state.studioEnhBuffer : state.studioRawBuffer;
+    if (!activeBuffer) return;
 
     state.studioSource = state.studioAudioCtx.createBufferSource();
     state.studioSource.buffer = activeBuffer;

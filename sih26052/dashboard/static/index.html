@@ -242,12 +242,12 @@
                 </div>
             </section>
 
-            <!-- ── Audio Studio (Offline Samples / Upload) ── -->
+            <!-- ── Audio Studio (Offline Samples / Upload & Pi Headphone Playback) ── -->
             <section class="card studio-section">
                 <div class="card-header collapsible-header" id="studio-collapse-trigger">
                     <div class="header-left">
-                        <h2>Evaluation Studio (Upload or Load Test Audio)</h2>
-                        <span class="header-sub">Process standalone WAV audio files with instant before/after audio comparison</span>
+                        <h2>Sample Audio Evaluation & Headphone Studio</h2>
+                        <span class="header-sub">Process defense test recordings or uploaded audio on the Pi — listen via physical headphones or browser</span>
                     </div>
                     <span class="collapse-icon" id="studio-collapse-icon">▾</span>
                 </div>
@@ -256,7 +256,7 @@
                     <div class="studio-controls-row">
                         <div class="file-upload-box">
                             <input type="file" id="file-input" accept="audio/*,.wav,.mp3,.flac" hidden>
-                            <button class="btn btn-secondary" id="btn-browse-file">Choose Local Audio File</button>
+                            <button class="btn btn-secondary" id="btn-browse-file">Choose Local File</button>
                             <span class="file-chosen-name" id="file-chosen-name">No file selected</span>
                         </div>
                         <div class="or-divider">or</div>
@@ -267,24 +267,52 @@
                             <button class="btn btn-secondary" id="btn-load-preset">Load Sample</button>
                         </div>
                         <button class="btn btn-primary" id="btn-enhance-file" disabled>
-                            <span id="enhance-btn-text">Enhance File</span>
+                            <span id="enhance-btn-text">⚡ Process on Pi</span>
                         </button>
                     </div>
 
-                    <!-- A/B Player Controls -->
+                    <!-- Physical Headphone & Browser Player Controls -->
                     <div class="studio-player" id="studio-player" style="display: none;">
-                        <div class="player-controls">
-                            <button class="btn btn-play" id="btn-studio-play">▶ Play</button>
-                            <div class="ab-switch-pill">
-                                <button class="ab-btn active" id="ab-btn-enh">Cleaned (GTCRN)</button>
-                                <button class="ab-btn" id="ab-btn-raw">Original (Noisy)</button>
+                        <!-- Dedicated Physical Headphone Output Section -->
+                        <div class="pi-headphone-panel">
+                            <div class="panel-header-row">
+                                <div class="panel-tag">
+                                    <span class="pi-chip">Raspberry Pi 5</span>
+                                    <span class="panel-title">Physical Headphone Output (USB DAC 3.5mm Jack)</span>
+                                </div>
+                                <span class="headphone-status-badge" id="pi-headphone-status">Headphones Ready</span>
                             </div>
-                            <span class="player-time" id="studio-time-display">00:00 / 00:00</span>
+                            <div class="headphone-actions">
+                                <button class="btn btn-action-enh" id="btn-pi-play-enh" title="Output clean enhanced speech to headphones connected to the Pi">
+                                    <span>🎧 Listen Enhanced on Pi</span>
+                                </button>
+                                <button class="btn btn-action-raw" id="btn-pi-play-raw" title="Output noisy original audio to headphones connected to the Pi">
+                                    <span>🎧 Listen Raw on Pi</span>
+                                </button>
+                                <button class="btn btn-secondary btn-sm" id="btn-pi-stop-playback" title="Stop headphone output">
+                                    <span>⏹ Stop Pi Audio</span>
+                                </button>
+                            </div>
                         </div>
-                        <div class="player-metrics" id="studio-metrics-display">
-                            <span>Processing Time: <strong id="st-proc-time">—</strong> ms</span>
-                            <span>RTF: <strong id="st-rtf">—</strong></span>
-                            <span>SNR Improvement: <strong id="st-snr" class="text-emerald">—</strong> dB</span>
+
+                        <!-- In-Browser A/B Player -->
+                        <div class="browser-player-panel">
+                            <div class="browser-player-top">
+                                <span class="browser-player-label">In-Browser Monitor:</span>
+                                <div class="player-controls">
+                                    <button class="btn btn-play btn-sm" id="btn-studio-play">▶ Play</button>
+                                    <div class="ab-switch-pill">
+                                        <button class="ab-btn active" id="ab-btn-enh">Cleaned (GTCRN)</button>
+                                        <button class="ab-btn" id="ab-btn-raw">Original (Noisy)</button>
+                                    </div>
+                                    <span class="player-time" id="studio-time-display">00:00 / 00:00</span>
+                                </div>
+                            </div>
+                            <div class="player-metrics" id="studio-metrics-display">
+                                <span>Inference Time: <strong id="st-proc-time">—</strong> ms</span>
+                                <span>RTF: <strong id="st-rtf">—</strong></span>
+                                <span>SNR Gain: <strong id="st-snr" class="text-emerald">—</strong> dB</span>
+                            </div>
                         </div>
                     </div>
                 </div>

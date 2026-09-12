@@ -41,6 +41,10 @@ class HardwareBridge:
         self.clients: Set[Any] = set()
         self.current_volume: int = 85
         self.is_enhanced: bool = True
+        self.cached_raw: Optional[np.ndarray] = None
+        self.cached_enh: Optional[np.ndarray] = None
+        self.cached_sr: int = 16000
+        self._playback_thread: Optional[threading.Thread] = None
         self._latest_telemetry: Dict[str, Any] = {
             "is_running": False,
             "enhanced": True,
@@ -131,6 +135,85 @@ class HardwareBridge:
 
         threading.Thread(target=_flash, daemon=True).start()
         return True
+
+    def cache_samples(self, raw: np.ndarray, enh: np.ndarray, sr: int = 16000) -> None:
+        """Cache the most recently processed audio samples for Pi headphone playback."""
+        self.cached_raw = np.asarray(raw, dtype=np.float32)
+        self.cached_enh = np.asarray(enh, dtype=np.float32)
+        self.cached_sr = sr
+        logger.info("Cached audio samples: raw=%d, enh=%d, sr=%d", len(self.cached_raw), len(self.cached_enh), sr)
+
+    def play_on_headphones(self, audio_type: str = "enhanced") -> Dict[str, Any]:
+        """Play raw or enhanced audio directly through the Pi's physical headphone jack."""
+        audio_data = self.cached_enh if audio_type == "enhanced" else self.cached_raw
+        if audio_data is None:
+            raise ValueError("No audio sample loaded or processed yet.")
+
+        # Stop active live loop if running to release ALSA output device
+        if self.is_running:
+            logger.info("Stopping live mic stream to release ALSA output for sample playback...")
+            self.stop_pipeline()
+            time.sleep(0.2)
+
+        # Stop any previous sample playback
+        self.stop_headphone_playback()
+
+        import sounddevice as sd
+
+        # Find output device (USB DAC)
+        out_dev = None
+        devs = sd.query_devices()
+        for idx, d in enumerate(devs):
+            if d["max_output_channels"] > 0 and any(k in d["name"].lower() for k in ("usb", "pnp", "headphone", "audio")):
+                out_dev = idx
+                break
+        if out_dev is None:
+            for idx, d in enumerate(devs):
+                if d["max_output_channels"] > 0:
+                    out_dev = idx
+                    break
+
+        gain = (self.current_volume / 100.0) * 1.5
+        scaled = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
+        if scaled.ndim == 1:
+            scaled = np.column_stack([scaled, scaled])
+
+        sr = self.cached_sr
+        dur = round(len(audio_data) / sr, 2)
+        logger.info("Playing %s audio (%d samples, %.1fs) on Pi headphones (device=%s)...", audio_type, len(scaled), dur, out_dev)
+        sd.play(scaled, samplerate=sr, device=out_dev)
+
+        # Indicate active playback on status LEDs
+        try:
+            from sih26052.runtime.led_status import LEDStatus
+            leds = LEDStatus(22, 23, 24)
+            leds.set_system_active(True)
+            leds.set_enhancement_mode(audio_type == "enhanced")
+            leds.set_activity(True)
+        except Exception:
+            pass
+
+        return {"status": "playing", "type": audio_type, "duration": dur}
+
+    def stop_headphone_playback(self) -> Dict[str, Any]:
+        """Stop sound playing on the Pi physical headphones."""
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+
+        try:
+            from sih26052.runtime.led_status import LEDStatus
+            leds = LEDStatus(22, 23, 24)
+            if not self.is_running:
+                leds.set_system_active(False)
+            leds.set_enhancement_mode(self.is_enhanced)
+            leds.set_activity(False)
+        except Exception:
+            pass
+
+        return {"status": "stopped"}
 
     def start_pipeline(
         self,

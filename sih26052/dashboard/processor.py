@@ -20,8 +20,9 @@ import soundfile as sf
 
 try:
     import torch
+    from gtcrn import GTCRN
     HAS_TORCH = True
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     torch = None
     HAS_TORCH = False
 
@@ -91,11 +92,17 @@ class ModelEngineManager:
             fallback_name = "gtcrn_stream_int8.onnx" if int8 else "gtcrn_stream.onnx"
             model_path = self.repo_root / "models" / fallback_name
 
-        if not model_path.exists():
-            raise FileNotFoundError(f"ONNX model not found: {model_path}")
+        try:
+            logger.info("Loading ONNX Streaming Enhancer: %s", model_path)
+            enhancer = StreamingEnhancer(model_path, n_freq=257)
+        except Exception as err:
+            logger.warning("Could not initialize %s (%s). Falling back to FP32 model...", model_path.name, err)
+            fp32_path = self.repo_root / "models" / "gtcrn_finetuned_stream.onnx"
+            if not fp32_path.exists():
+                fp32_path = self.repo_root / "models" / "gtcrn_stream.onnx"
+            logger.info("Loading fallback ONNX Enhancer: %s", fp32_path)
+            enhancer = StreamingEnhancer(fp32_path, n_freq=257)
 
-        logger.info("Loading ONNX Streaming Enhancer: %s", model_path)
-        enhancer = StreamingEnhancer(model_path, n_freq=257)
         if int8:
             self._onnx_int8_enhancer = enhancer
         else:
@@ -422,4 +429,6 @@ def process_audio_file(
             "enhanced": spec_enh,
             "difference": spec_diff,
         },
+        "_raw_array": raw_audio,
+        "_enh_array": enhanced_audio,
     }

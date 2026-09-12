@@ -33,7 +33,9 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 STATIC_DIR = Path(__file__).parent / "static"
-TEST_AUDIO_DIR = REPO_ROOT / "data" / "test_audio"
+TEST_AUDIO_DIR = STATIC_DIR / "eval_samples"
+if not TEST_AUDIO_DIR.exists():
+    TEST_AUDIO_DIR = REPO_ROOT / "data" / "test_audio"
 
 
 def create_app():
@@ -100,6 +102,21 @@ def create_app():
         hardware_bridge.test_physical_leds()
         return {"status": "testing_leds"}
 
+    @app.post("/api/hardware/play-sample")
+    async def hardware_play_sample(mode: str = Form("enhanced")):
+        """Play processed audio (enhanced or raw) directly through the Pi's physical headphones."""
+        try:
+            res = hardware_bridge.play_on_headphones(audio_type=mode)
+            return JSONResponse(content=res)
+        except Exception as e:
+            logger.error("Pi headphone playback error: %s", e)
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.post("/api/hardware/stop-playback")
+    async def hardware_stop_playback():
+        """Stop sound playing on the Pi's physical headphones."""
+        return hardware_bridge.stop_headphone_playback()
+
     @app.websocket("/ws/hardware")
     async def websocket_hardware_endpoint(websocket: WebSocket):
         """High-speed 30fps telemetry and audio stream from Raspberry Pi hardware."""
@@ -135,13 +152,19 @@ def create_app():
         presets = []
         if TEST_AUDIO_DIR.exists():
             noisy_files = sorted(TEST_AUDIO_DIR.glob("*_noisy.wav"))
-            for i, noisy_path in enumerate(noisy_files[:15]):  # Provide top 15 presets
+            labels = {
+                "sample_0": "Battlefield Heavy Noise (-5 dB SNR)",
+                "sample_1": "Armored Vehicle Engine Noise (+7 dB SNR)",
+                "sample_2": "Command Center Radio Babble (+12 dB SNR)",
+                "sample_3": "High-Wind & Rotor Blade Noise (-4 dB SNR)",
+                "sample_4": "Tactical Radio Static & Gunfire (+7 dB SNR)",
+            }
+            for i, noisy_path in enumerate(noisy_files):
                 clean_path = TEST_AUDIO_DIR / noisy_path.name.replace("_noisy.wav", "_clean.wav")
-                # Generate a descriptive title based on index or name
                 preset_id = noisy_path.stem.replace("_noisy", "")
                 presets.append({
                     "id": preset_id,
-                    "title": f"Sample #{i+1:02d} ({preset_id})",
+                    "title": labels.get(preset_id, f"Defense Sample #{i+1:02d} ({preset_id})"),
                     "filename": noisy_path.name,
                     "has_clean": clean_path.exists(),
                     "size_bytes": noisy_path.stat().st_size,
@@ -150,21 +173,27 @@ def create_app():
 
     @app.get("/api/preset/{preset_id}")
     async def get_preset_audio(preset_id: str):
-        """Retrieve audio data for a given preset ID."""
+        """Retrieve audio data for a given preset ID and cache for Pi headphone output."""
         noisy_path = TEST_AUDIO_DIR / f"{preset_id}_noisy.wav"
         if not noisy_path.exists():
-            # Try raw name
             noisy_path = TEST_AUDIO_DIR / preset_id
         if not noisy_path.exists():
             raise HTTPException(status_code=404, detail="Preset file not found")
 
         clean_path = TEST_AUDIO_DIR / f"{preset_id}_clean.wav"
+        enh_path = TEST_AUDIO_DIR / f"{preset_id}_enhanced.wav"
 
         noisy_bytes = noisy_path.read_bytes()
         clean_bytes = clean_path.read_bytes() if clean_path.exists() else None
+        enh_bytes = enh_path.read_bytes() if enh_path.exists() else None
 
         noisy_arr, sr = read_audio_from_bytes(noisy_bytes)
         clean_arr, _ = read_audio_from_bytes(clean_bytes) if clean_bytes else (None, 16000)
+        enh_arr, _ = read_audio_from_bytes(enh_bytes) if enh_bytes else (None, 16000)
+
+        # Cache samples in hardware bridge so user can immediately listen on Pi headphones
+        target_enh = enh_arr if enh_arr is not None else (clean_arr if clean_arr is not None else noisy_arr)
+        hardware_bridge.cache_samples(noisy_arr, target_enh, sr=sr)
 
         return {
             "id": preset_id,
@@ -172,27 +201,36 @@ def create_app():
             "duration_sec": round(len(noisy_arr) / sr, 2),
             "noisy_audio_url": write_audio_to_base64_wav(noisy_arr, sr),
             "clean_audio_url": write_audio_to_base64_wav(clean_arr, sr) if clean_arr is not None else None,
+            "enhanced_audio_url": write_audio_to_base64_wav(enh_arr, sr) if enh_arr is not None else None,
             "has_clean": clean_arr is not None,
+            "has_enhanced": enh_arr is not None,
         }
 
     @app.post("/api/enhance")
     async def enhance_audio(
-        file: UploadFile = File(...),
+        file: Optional[UploadFile] = File(None),
         engine: str = Form("onnx_stream_int8"),
         clean_file: Optional[UploadFile] = File(None),
         preset_id: Optional[str] = Form(None),
     ):
-        """Process an uploaded noisy audio file and return enhanced audio + metrics."""
+        """Process an audio file (uploaded or preset) and cache for Pi headphone playback."""
         try:
-            audio_bytes = await file.read()
-            if not audio_bytes:
-                raise HTTPException(status_code=400, detail="Empty audio file provided")
+            if file is not None:
+                audio_bytes = await file.read()
+            elif preset_id:
+                preset_file = TEST_AUDIO_DIR / f"{preset_id}_noisy.wav"
+                if not preset_file.exists():
+                    preset_file = TEST_AUDIO_DIR / preset_id
+                if not preset_file.exists():
+                    raise HTTPException(status_code=404, detail=f"Preset {preset_id} not found")
+                audio_bytes = preset_file.read_bytes()
+            else:
+                raise HTTPException(status_code=400, detail="No audio file or preset ID provided")
 
             clean_bytes = None
             if clean_file:
                 clean_bytes = await clean_file.read()
             elif preset_id:
-                # If preset_id is passed, auto-load its clean pair if present
                 clean_path = TEST_AUDIO_DIR / f"{preset_id}_clean.wav"
                 if clean_path.exists():
                     clean_bytes = clean_path.read_bytes()
@@ -202,6 +240,13 @@ def create_app():
                 engine=engine,
                 clean_audio_bytes=clean_bytes,
             )
+
+            # Pop numpy arrays to avoid JSON serialization errors and cache for Pi headphone output
+            raw_arr = result.pop("_raw_array", None)
+            enh_arr = result.pop("_enh_array", None)
+            if raw_arr is not None and enh_arr is not None:
+                hardware_bridge.cache_samples(raw_arr, enh_arr, sr=result.get("sample_rate", 16000))
+
             return JSONResponse(content=result)
         except Exception as e:
             logger.exception("Error enhancing audio: %s", e)
