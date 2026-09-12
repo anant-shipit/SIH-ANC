@@ -45,6 +45,45 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def resolve_stream_channels(
+    input_dev: int | str | None = None,
+    output_dev: int | str | None = None,
+) -> tuple[int, int]:
+    """Query sounddevice to determine supported hardware channel counts.
+
+    Returns (in_channels, out_channels) clamped to at most 2 channels for pipeline compatibility.
+    Handles mono microphones (1 in) and stereo output (2 out) seamlessly.
+    """
+    import sounddevice as sd
+
+    in_ch = 1
+    out_ch = 2
+
+    try:
+        target_in = input_dev if input_dev is not None else sd.default.device[0]
+        if target_in is not None and target_in != -1:
+            dev_info = sd.query_devices(target_in)
+            if isinstance(dev_info, dict):
+                max_in = dev_info.get("max_input_channels", 1)
+                in_ch = min(2, max(1, int(max_in)))
+    except Exception as exc:
+        logger.debug("Failed to query input channels for device %s: %s", input_dev, exc)
+        in_ch = 1
+
+    try:
+        target_out = output_dev if output_dev is not None else sd.default.device[1]
+        if target_out is not None and target_out != -1:
+            dev_info = sd.query_devices(target_out)
+            if isinstance(dev_info, dict):
+                max_out = dev_info.get("max_output_channels", 2)
+                out_ch = min(2, max(1, int(max_out)))
+    except Exception as exc:
+        logger.debug("Failed to query output channels for device %s: %s", output_dev, exc)
+        out_ch = 2
+
+    return in_ch, out_ch
+
+
 class AudioLoop:
     """Real-time speech enhancement loop.
 
@@ -211,13 +250,11 @@ class AudioLoop:
         # ── Write to output (upsample back to native_sr if needed) ──
         if ratio > 1:
             np.copyto(self._native_out_buf, np.repeat(output, ratio))
-            outdata[:, 0] = self._native_out_buf
-            if outdata.shape[1] > 1:
-                outdata[:, 1] = self._native_out_buf
+            for ch in range(outdata.shape[1]):
+                outdata[:, ch] = self._native_out_buf
         else:
-            outdata[:, 0] = output
-            if outdata.shape[1] > 1:
-                outdata[:, 1] = output
+            for ch in range(outdata.shape[1]):
+                outdata[:, ch] = output
 
         # ── Smooth Voice Activity LED with hysteresis (no flickering on air) ──
         peak_level = float(np.max(np.abs(output)))
@@ -276,32 +313,22 @@ class AudioLoop:
         self.leds.set_enhancement_mode(self.ab_switch.is_enhanced)
 
         # ── Open stream ──
-        # Use native_sr for the hardware stream; the callback decimates/interpolates.
-        # When input and output are on different devices (I2S mic + USB DAC),
-        # use separate InputStream + OutputStream instead of a duplex Stream.
-        use_duplex = (self.input_device == self.output_device)
+        # Query hardware device channel limits dynamically
+        in_ch, out_ch = resolve_stream_channels(self.input_device, self.output_device)
+        logger.info("Opening hardware audio stream: channels=(in=%d, out=%d), latency=0.064s", in_ch, out_ch)
 
-        if use_duplex:
-            stream = sd.Stream(
-                device=self.input_device,
-                samplerate=self.native_sr,
-                blocksize=self._native_hop,
-                channels=2,
-                dtype="float32",
-                callback=self._callback,
-                latency=0.064,
-            )
-        else:
-            # Separate capture (I2S mic card) and playback (USB sound card)
-            stream = sd.Stream(
-                device=(self.input_device, self.output_device),
-                samplerate=self.native_sr,
-                blocksize=self._native_hop,
-                channels=2,
-                dtype="float32",
-                callback=self._callback,
-                latency=0.064,
-            )
+        use_duplex = (self.input_device == self.output_device)
+        dev_arg = self.input_device if use_duplex else (self.input_device, self.output_device)
+
+        stream = sd.Stream(
+            device=dev_arg,
+            samplerate=self.native_sr,
+            blocksize=self._native_hop,
+            channels=(in_ch, out_ch),
+            dtype="float32",
+            callback=self._callback,
+            latency=0.064,
+        )
 
         self.start_time = time.monotonic()
 

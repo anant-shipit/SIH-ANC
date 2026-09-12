@@ -178,12 +178,24 @@ class HardwareBridge:
 
         gain = (self.current_volume / 100.0) * 1.5
         scaled = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
-        if scaled.ndim == 1:
-            scaled = np.column_stack([scaled, scaled])
+        out_ch_count = 2
+        try:
+            if out_dev is not None:
+                d_info = devs[out_dev] if isinstance(out_dev, int) and out_dev < len(devs) else sd.query_devices(out_dev)
+                out_ch_count = d_info.get("max_output_channels", 2)
+        except Exception:
+            out_ch_count = 2
+
+        if out_ch_count >= 2:
+            if scaled.ndim == 1:
+                scaled = np.column_stack([scaled, scaled])
+        else:
+            if scaled.ndim == 2:
+                scaled = scaled[:, 0]
 
         sr = self.cached_sr
         dur = round(len(audio_data) / sr, 2)
-        logger.info("Playing %s audio (%d samples, %.1fs) on Pi headphones (device=%s)...", audio_type, len(scaled), dur, out_dev)
+        logger.info("Playing %s audio (%d samples, %.1fs) on Pi headphones (device=%s, channels=%d)...", audio_type, len(scaled), dur, out_dev, out_ch_count)
         sd.play(scaled, samplerate=sr, device=out_dev)
 
         # Indicate active playback on status LEDs
@@ -226,7 +238,7 @@ class HardwareBridge:
             else:
                 raise FileNotFoundError(f"Model not found: {model_path}")
 
-        from sih26052.runtime.audio_loop import AudioLoop
+        from sih26052.runtime.audio_loop import AudioLoop, resolve_stream_channels
 
         # Resolve devices using auto-detection
         self.audio_loop = AudioLoop(
@@ -246,6 +258,7 @@ class HardwareBridge:
             logger.info("Hardware AudioLoop worker started.")
             try:
                 import sounddevice as sd
+                in_ch, out_ch = resolve_stream_channels(self.audio_loop.input_device, self.audio_loop.output_device)
                 use_duplex = (self.audio_loop.input_device == self.audio_loop.output_device)
                 dev_arg = self.audio_loop.input_device if use_duplex else (self.audio_loop.input_device, self.audio_loop.output_device)
 
@@ -253,7 +266,7 @@ class HardwareBridge:
                     device=dev_arg,
                     samplerate=self.audio_loop.native_sr,
                     blocksize=self.audio_loop._native_hop,
-                    channels=2,
+                    channels=(in_ch, out_ch),
                     dtype="float32",
                     callback=self.audio_loop._callback,
                     latency=0.064,

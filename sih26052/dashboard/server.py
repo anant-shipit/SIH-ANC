@@ -10,6 +10,7 @@ Usage:
 """
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 from pathlib import Path
@@ -40,7 +41,16 @@ if not TEST_AUDIO_DIR.exists():
 
 def create_app():
     """Create and configure the FastAPI application."""
-    app = FastAPI(title="GTCRN Speech Enhancement Studio", version="1.0.0")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = asyncio.create_task(hardware_bridge.telemetry_broadcaster())
+        try:
+            yield
+        finally:
+            task.cancel()
+
+    app = FastAPI(title="GTCRN Speech Enhancement Studio", version="1.0.0", lifespan=lifespan)
 
     # Allow CORS for development flexibility
     app.add_middleware(
@@ -53,10 +63,6 @@ def create_app():
 
     # Mount static assets
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-    @app.on_event("startup")
-    async def startup_event():
-        asyncio.create_task(hardware_bridge.telemetry_broadcaster())
 
     @app.get("/")
     async def index():
