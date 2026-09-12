@@ -3,383 +3,288 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GTCRN Speech Enhancement Studio — SIH26052</title>
-    <meta name="description" content="Interactive AI Speech Enhancement Studio powered by fine-tuned GTCRN neural network on Raspberry Pi 5. Upload, record, filter, and compare audio in real-time.">
+    <title>SIH-26052 • Real-Time AI Speech Enhancement</title>
+    <meta name="description" content="Raspberry Pi 5 Real-Time Speech Enhancement Studio powered by GTCRN INT8 streaming neural network.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="app-container">
-        <!-- Top Navigation / Header -->
-        <header id="app-header">
-            <div class="brand-group">
-                <div class="brand-logo">
-                    <span class="logo-wave"></span>
-                    <span class="logo-wave"></span>
-                    <span class="logo-wave"></span>
-                </div>
-                <div class="brand-text">
-                    <h1>GTCRN SPEECH ENHANCEMENT</h1>
-                    <span class="brand-subtitle">SIH-26052 • Real-Time Neural ANC & Denoising</span>
+    <div class="app-layout">
+        <!-- Top Executive Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="brand-badge">SIH-26052</div>
+                <div class="brand-title">
+                    <h1>Real-Time Speech Enhancement Console</h1>
+                    <span class="brand-subtitle">Raspberry Pi 5 Edge AI • GTCRN INT8 Streaming</span>
                 </div>
             </div>
 
-            <!-- Mode Selector Tabs -->
-            <nav class="nav-tabs" id="nav-tabs">
-                <button class="nav-tab active" id="tab-btn-studio" data-tab="studio">
-                    <span class="tab-icon">🎛️</span> Audio Studio
-                </button>
-                <button class="nav-tab" id="tab-btn-stream" data-tab="stream">
-                    <span class="tab-icon">🎙️</span> Live Stream
-                </button>
-                <button class="nav-tab" id="tab-btn-telemetry" data-tab="telemetry">
-                    <span class="tab-icon">⚡</span> Edge Telemetry
-                </button>
-            </nav>
-
-            <div class="header-status">
-                <div class="engine-badge" id="engine-badge">
-                    <span class="badge-dot"></span>
-                    <span id="active-engine-label">PyTorch GTCRN</span>
+            <div class="system-status-pills">
+                <div class="status-pill">
+                    <span class="pill-label">Model</span>
+                    <span class="pill-value text-accent">GTCRN INT8 (23.6K params)</span>
                 </div>
-                <div class="connection-indicator" id="connection-indicator" title="Server Status">
-                    <span class="indicator-dot online"></span>
-                    <span id="connection-text">Online</span>
+                <div class="status-pill">
+                    <span class="pill-label">Hardware</span>
+                    <span class="pill-value">Dual INMP441 I2S + USB DAC</span>
+                </div>
+                <div class="status-pill" id="pill-temp">
+                    <span class="pill-label">SoC Temp</span>
+                    <span class="pill-value" id="val-cpu-temp">—°C</span>
+                </div>
+                <div class="status-pill connection-pill" id="pill-connection">
+                    <span class="dot-indicator online" id="ws-dot"></span>
+                    <span class="pill-value" id="ws-status-text">Connected</span>
                 </div>
             </div>
         </header>
 
-        <!-- Main Content Area -->
-        <main id="app-main">
-            <!-- ══════════════════════════════════════════════════════════════ -->
-            <!-- TAB 1: AUDIO STUDIO (Upload, Filter, Compare, Metrics)        -->
-            <!-- ══════════════════════════════════════════════════════════════ -->
-            <section class="tab-pane active" id="pane-studio">
-                <div class="studio-grid">
-                    <!-- Left Column: Audio Input & Controls -->
-                    <div class="studio-card input-card">
-                        <div class="card-header">
-                            <h2>1. Select Audio Input</h2>
-                            <div class="input-mode-toggles">
-                                <button class="input-mode-btn active" id="mode-btn-upload">Upload File</button>
-                                <button class="input-mode-btn" id="mode-btn-record">Microphone</button>
-                                <button class="input-mode-btn" id="mode-btn-preset">Sample Presets</button>
-                            </div>
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- ── Hardware Master Control Panel ── -->
+            <section class="card control-hero">
+                <div class="hero-left">
+                    <div class="pipeline-state-group">
+                        <button class="btn btn-primary" id="btn-pipeline-toggle">
+                            <span class="btn-indicator" id="pipeline-indicator"></span>
+                            <span id="pipeline-btn-text">Start Hardware Stream</span>
+                        </button>
+                        <div class="pipeline-meta">
+                            <span class="meta-label">Capture Pipeline:</span>
+                            <span class="meta-status" id="pipeline-status-text">Ready to stream (48 kHz I2S ➔ 16 kHz GTCRN)</span>
                         </div>
+                    </div>
 
-                        <!-- Sub-panel: File Upload -->
-                        <div class="input-subpanel" id="subpanel-upload">
-                            <div class="dropzone" id="audio-dropzone">
-                                <input type="file" id="audio-file-input" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a" hidden>
-                                <div class="dropzone-content">
-                                    <div class="dropzone-icon">📁</div>
-                                    <h3>Drag & Drop Audio File Here</h3>
-                                    <p>Supports WAV, MP3, FLAC, OGG, WebM (auto-resampled to 16 kHz mono)</p>
-                                    <button type="button" class="btn secondary-btn" id="browse-btn">Browse Local Files</button>
-                                </div>
-                                <div class="file-loaded-info" id="file-loaded-info" style="display: none;">
-                                    <span class="file-icon">🎵</span>
-                                    <div class="file-details">
-                                        <span class="file-name" id="loaded-file-name">filename.wav</span>
-                                        <span class="file-meta" id="loaded-file-meta">16.0 kHz • 2.4s</span>
-                                    </div>
-                                    <button class="clear-file-btn" id="clear-file-btn" title="Remove file">✕</button>
-                                </div>
-                            </div>
+                    <div class="mode-toggle-group">
+                        <button class="btn btn-mode active" id="btn-mode-toggle" title="Toggle AI Filtering vs Raw Bypass">
+                            <span class="mode-icon" id="mode-icon">🛡️</span>
+                            <span class="mode-text" id="mode-text">ANC Filtering: ACTIVE</span>
+                        </button>
+                        <span class="mode-hint">Toggle here or via physical button (GPIO 17)</span>
+                    </div>
+                </div>
+
+                <div class="hero-right">
+                    <!-- Headphone Volume Control -->
+                    <div class="volume-control-box">
+                        <div class="volume-header">
+                            <span class="volume-icon">🎧</span>
+                            <span class="volume-label">Headphone Volume</span>
+                            <span class="volume-value" id="volume-val-display">85%</span>
                         </div>
+                        <input type="range" id="volume-slider" min="0" max="100" value="85" class="minimal-slider">
+                    </div>
 
-                        <!-- Sub-panel: Microphone Recorder -->
-                        <div class="input-subpanel" id="subpanel-record" style="display: none;">
-                            <div class="recorder-container">
-                                <div class="record-pulse-wrapper">
-                                    <button class="record-btn" id="record-toggle-btn" title="Click to Record">
-                                        <span class="record-circle"></span>
-                                    </button>
-                                </div>
-                                <div class="record-status-label" id="record-status-text">Click to Start Recording</div>
-                                <div class="record-timer" id="record-timer">00:00.0</div>
+                    <!-- Live Browser Audio Monitor -->
+                    <div class="browser-monitor-box">
+                        <button class="btn btn-secondary" id="btn-browser-audio">
+                            <span class="monitor-icon">🔊</span>
+                            <span id="browser-audio-text">Listen Live in Browser</span>
+                        </button>
+                        <span class="monitor-hint">Stream cleaned Pi audio directly to laptop speakers</span>
+                    </div>
+                </div>
+            </section>
 
-                                <!-- Live Input VU Meter -->
-                                <div class="vu-meter-container">
-                                    <div class="vu-meter-bar" id="mic-vu-bar"></div>
-                                </div>
-                                <div class="recorder-hint">Speak with background noise (keyboard clicks, fans, chatter). Max 30s.</div>
-                            </div>
+            <!-- ── Live Metrics Grid ── -->
+            <section class="metrics-grid">
+                <div class="metric-card highlight-metric">
+                    <div class="metric-top">
+                        <span class="metric-title">Inference Latency</span>
+                        <span class="metric-badge">Ultra-Fast</span>
+                    </div>
+                    <div class="metric-number-group">
+                        <span class="metric-number" id="metric-latency">1.8</span>
+                        <span class="metric-unit">ms</span>
+                    </div>
+                    <span class="metric-footnote">Budget: 16.0 ms (Per Hop)</span>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-top">
+                        <span class="metric-title">Real-Time Factor (RTF)</span>
+                        <span class="metric-badge text-emerald">&lt; 0.12x</span>
+                    </div>
+                    <div class="metric-number-group">
+                        <span class="metric-number" id="metric-rtf">0.08</span>
+                        <span class="metric-unit">x</span>
+                    </div>
+                    <span class="metric-footnote">12.5x faster than real-time</span>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-top">
+                        <span class="metric-title">Estimated SNR Gain</span>
+                        <span class="metric-badge text-emerald">Dynamic</span>
+                    </div>
+                    <div class="metric-number-group">
+                        <span class="metric-number text-emerald" id="metric-snr">+12.4</span>
+                        <span class="metric-unit">dB</span>
+                    </div>
+                    <span class="metric-footnote">Background noise suppression</span>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-top">
+                        <span class="metric-title">Buffer Stability</span>
+                        <span class="metric-badge" id="xrun-badge">Optimal</span>
+                    </div>
+                    <div class="metric-number-group">
+                        <span class="metric-number" id="metric-xruns">0</span>
+                        <span class="metric-unit">xruns</span>
+                    </div>
+                    <span class="metric-footnote">ALSA dropouts / underruns</span>
+                </div>
+            </section>
+
+            <!-- ── Real-Time Visualizers (Dual Spectrum & Oscilloscope) ── -->
+            <section class="card visualizer-card">
+                <div class="card-header">
+                    <div class="header-left">
+                        <h2>Live Spectral Frequency Response (0 — 8 kHz)</h2>
+                        <span class="header-sub">Real-time STFT Magnitude Spectrum: Raw Microphone Input vs Cleaned Output</span>
+                    </div>
+                    <div class="legend-group">
+                        <div class="legend-item">
+                            <span class="legend-dot raw-dot"></span>
+                            <span>Raw Mic (Noise + Speech)</span>
                         </div>
-
-                        <!-- Sub-panel: Presets -->
-                        <div class="input-subpanel" id="subpanel-preset" style="display: none;">
-                            <div class="preset-selector-group">
-                                <label for="preset-select">Select Real-World Test Sample:</label>
-                                <div class="preset-dropdown-wrap">
-                                    <select id="preset-select" class="custom-select">
-                                        <option value="">Loading presets...</option>
-                                    </select>
-                                    <button class="btn secondary-btn" id="load-preset-btn">Load Sample</button>
-                                </div>
-                                <p class="preset-note">These test pairs are extracted from our SIH noisy validation dataset with verified ground-truth speech.</p>
-                            </div>
+                        <div class="legend-item">
+                            <span class="legend-dot enh-dot"></span>
+                            <span>GTCRN Filtered Speech</span>
                         </div>
+                    </div>
+                </div>
 
-                        <!-- Model Engine Selector -->
-                        <div class="model-settings-group">
-                            <label for="engine-select">Enhancement Model Engine:</label>
-                            <select id="engine-select" class="custom-select">
-                                <option value="pytorch" selected>PyTorch GTCRN (Fine-Tuned — Highest Fidelity)</option>
-                                <option value="onnx_stream_int8">ONNX Streaming INT8 (Edge Fast — 0.13 RTF)</option>
-                                <option value="onnx_stream_fp32">ONNX Streaming FP32 (Full Precision)</option>
+                <!-- 64-Band Live Spectrum Canvas -->
+                <div class="canvas-container">
+                    <canvas id="canvas-spectrum" width="960" height="220"></canvas>
+                    <div class="freq-axis-labels">
+                        <span>0 Hz</span>
+                        <span>1 kHz</span>
+                        <span>2 kHz</span>
+                        <span>4 kHz</span>
+                        <span>6 kHz</span>
+                        <span>8 kHz (Nyquist)</span>
+                    </div>
+                </div>
+
+                <!-- Live Oscilloscope Waveform -->
+                <div class="oscilloscope-section">
+                    <div class="osc-header">
+                        <span class="osc-title">Real-Time Waveform Oscilloscope</span>
+                        <span class="osc-rate">16,000 samples/sec • 16ms Frames</span>
+                    </div>
+                    <canvas id="canvas-oscilloscope" width="960" height="90"></canvas>
+                </div>
+            </section>
+
+            <!-- ── Hardware GPIO LED Guide & Verification ── -->
+            <section class="card led-diagnostics-card">
+                <div class="card-header">
+                    <div class="header-left">
+                        <h2>Hardware Status LEDs & Diagnostics</h2>
+                        <span class="header-sub">Physical status indicators on the Raspberry Pi 40-pin GPIO header</span>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="btn-test-leds">
+                        <span>💡 Test Physical LEDs (Flash 2s)</span>
+                    </button>
+                </div>
+
+                <div class="led-cards-grid">
+                    <!-- LED 1: SYS -->
+                    <div class="led-card">
+                        <div class="led-visual-wrapper">
+                            <div class="virtual-diode diode-green" id="vled-sys"></div>
+                        </div>
+                        <div class="led-meta">
+                            <div class="led-title-row">
+                                <span class="led-name">System Power & Pipeline</span>
+                                <span class="led-pin">GPIO 22 • Pin 15</span>
+                            </div>
+                            <p class="led-desc">Solid Green when the real-time AI enhancer is running and streaming audio.</p>
+                            <span class="led-live-state text-muted" id="vled-sys-state">OFF</span>
+                        </div>
+                    </div>
+
+                    <!-- LED 2: MODE -->
+                    <div class="led-card">
+                        <div class="led-visual-wrapper">
+                            <div class="virtual-diode diode-blue" id="vled-mode"></div>
+                        </div>
+                        <div class="led-meta">
+                            <div class="led-title-row">
+                                <span class="led-name">Enhancement Mode (ANC)</span>
+                                <span class="led-pin">GPIO 23 • Pin 16</span>
+                            </div>
+                            <p class="led-desc">Solid Blue when Active AI Filtering is ON. Turns OFF in raw bypass mode.</p>
+                            <span class="led-live-state text-muted" id="vled-mode-state">OFF</span>
+                        </div>
+                    </div>
+
+                    <!-- LED 3: ACT -->
+                    <div class="led-card">
+                        <div class="led-visual-wrapper">
+                            <div class="virtual-diode diode-amber" id="vled-act"></div>
+                        </div>
+                        <div class="led-meta">
+                            <div class="led-title-row">
+                                <span class="led-name">Voice Activity & Signal</span>
+                                <span class="led-pin">GPIO 24 • Pin 18</span>
+                            </div>
+                            <p class="led-desc">Glows on voice activity with smooth 240ms hold timer (calibrated to ignore air).</p>
+                            <span class="led-live-state text-muted" id="vled-act-state">IDLE</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── Audio Studio (Offline Samples / Upload) ── -->
+            <section class="card studio-section">
+                <div class="card-header collapsible-header" id="studio-collapse-trigger">
+                    <div class="header-left">
+                        <h2>Evaluation Studio (Upload or Load Test Audio)</h2>
+                        <span class="header-sub">Process standalone WAV audio files with instant before/after audio comparison</span>
+                    </div>
+                    <span class="collapse-icon" id="studio-collapse-icon">▾</span>
+                </div>
+
+                <div class="studio-body" id="studio-body">
+                    <div class="studio-controls-row">
+                        <div class="file-upload-box">
+                            <input type="file" id="file-input" accept="audio/*,.wav,.mp3,.flac" hidden>
+                            <button class="btn btn-secondary" id="btn-browse-file">Choose Local Audio File</button>
+                            <span class="file-chosen-name" id="file-chosen-name">No file selected</span>
+                        </div>
+                        <div class="or-divider">or</div>
+                        <div class="preset-box">
+                            <select id="preset-dropdown" class="minimal-select">
+                                <option value="">Loading test samples...</option>
                             </select>
+                            <button class="btn btn-secondary" id="btn-load-preset">Load Sample</button>
                         </div>
-
-                        <!-- Primary Action Button -->
-                        <button class="btn primary-btn btn-enhance" id="enhance-btn" disabled>
-                            <span class="btn-icon">⚡</span>
-                            <span class="btn-text" id="enhance-btn-text">Enhance Audio</span>
-                            <span class="btn-spinner" id="enhance-spinner" style="display: none;"></span>
+                        <button class="btn btn-primary" id="btn-enhance-file" disabled>
+                            <span id="enhance-btn-text">Enhance File</span>
                         </button>
                     </div>
 
-                    <!-- Right Column: Interactive Dual Player & Metrics -->
-                    <div class="studio-card player-card">
-                        <div class="card-header">
-                            <h2>2. Interactive A/B Comparison Player</h2>
-                            <div class="player-actions">
-                                <button class="btn small-btn outline-btn" id="download-btn" disabled>
-                                    <span>⬇️</span> Download Filtered Audio
-                                </button>
+                    <!-- A/B Player Controls -->
+                    <div class="studio-player" id="studio-player" style="display: none;">
+                        <div class="player-controls">
+                            <button class="btn btn-play" id="btn-studio-play">▶ Play</button>
+                            <div class="ab-switch-pill">
+                                <button class="ab-btn active" id="ab-btn-enh">Cleaned (GTCRN)</button>
+                                <button class="ab-btn" id="ab-btn-raw">Original (Noisy)</button>
                             </div>
+                            <span class="player-time" id="studio-time-display">00:00 / 00:00</span>
                         </div>
-
-                        <!-- A/B Instant Bypass Switcher -->
-                        <div class="ab-switcher-container">
-                            <span class="ab-label">Audio Source:</span>
-                            <div class="ab-toggle-group" id="ab-toggle-group">
-                                <button class="ab-btn active" id="ab-btn-raw" data-source="raw">
-                                    <span class="ab-badge raw">RAW</span>
-                                    <span class="ab-text">Noisy Input</span>
-                                </button>
-                                <button class="ab-btn" id="ab-btn-enh" data-source="enh">
-                                    <span class="ab-badge enh">✨ FILTERED</span>
-                                    <span class="ab-text">GTCRN Enhanced</span>
-                                </button>
-                            </div>
-                            <span class="ab-tip">Tip: Switch freely while playing to hear the instant difference!</span>
-                        </div>
-
-                        <!-- Waveform Canvas & Playhead -->
-                        <div class="waveform-container" id="waveform-container">
-                            <canvas id="waveform-canvas" width="800" height="120"></canvas>
-                            <div class="waveform-playhead" id="waveform-playhead"></div>
-                            <div class="waveform-empty-state" id="waveform-empty">
-                                <span>No audio loaded yet. Select a preset, upload a file, or record to begin.</span>
-                            </div>
-                        </div>
-
-                        <!-- Audio Transport Controls -->
-                        <div class="transport-bar">
-                            <div class="transport-buttons">
-                                <button class="transport-btn" id="btn-restart" title="Restart" disabled>⏮</button>
-                                <button class="transport-btn play-btn" id="btn-play" title="Play/Pause" disabled>▶</button>
-                                <button class="transport-btn" id="btn-loop" title="Toggle Loop">🔁</button>
-                            </div>
-                            <div class="time-display">
-                                <span id="current-time">0:00.0</span> / <span id="total-time">0:00.0</span>
-                            </div>
-                            <div class="volume-control">
-                                <span class="vol-icon">🔊</span>
-                                <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="0.9">
-                            </div>
-                        </div>
-
-                        <!-- Quality & Performance Metrics Bar -->
-                        <div class="metrics-grid" id="metrics-grid">
-                            <div class="metric-card" id="metric-rtf">
-                                <span class="metric-label">Real-Time Factor</span>
-                                <span class="metric-value" id="val-rtf">—</span>
-                                <span class="metric-sub" id="sub-rtf">Target &lt; 1.00x</span>
-                            </div>
-                            <div class="metric-card" id="metric-latency">
-                                <span class="metric-label">Inference Time</span>
-                                <span class="metric-value" id="val-proc-time">—</span>
-                                <span class="metric-sub" id="sub-proc-time">ms</span>
-                            </div>
-                            <div class="metric-card highlight-green" id="metric-snr">
-                                <span class="metric-label">SNR Improvement</span>
-                                <span class="metric-value" id="val-snr-gain">—</span>
-                                <span class="metric-sub" id="sub-snr-gain">ΔSNR (dB)</span>
-                            </div>
-                            <div class="metric-card" id="metric-noise">
-                                <span class="metric-label">Noise Attenuation</span>
-                                <span class="metric-value" id="val-noise-red">—</span>
-                                <span class="metric-sub" id="sub-noise-red">dB reduction</span>
-                            </div>
-                            <div class="metric-card" id="metric-pesq">
-                                <span class="metric-label">Speech Quality</span>
-                                <span class="metric-value" id="val-pesq">—</span>
-                                <span class="metric-sub" id="sub-pesq">PESQ Score</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Spectrogram Analysis Studio -->
-                <div class="spectrogram-card">
-                    <div class="card-header">
-                        <h2>3. Spectral Frequency Analysis (Before vs After)</h2>
-                        <div class="spectrogram-tabs">
-                            <button class="spec-tab active" data-view="side-by-side">Side-by-Side</button>
-                            <button class="spec-tab" data-view="difference">Noise Attenuation Heatmap</button>
-                        </div>
-                    </div>
-
-                    <div class="spectrograms-wrapper" id="spec-side-by-side">
-                        <div class="spectrogram-column">
-                            <div class="spec-col-header">
-                                <span class="spec-dot raw"></span>
-                                <h3>Input: Raw Noisy Audio (Broadband Noise + Speech)</h3>
-                            </div>
-                            <div class="canvas-wrap">
-                                <canvas id="canvas-spec-raw" width="800" height="200"></canvas>
-                                <div class="spec-cursor" id="cursor-spec-raw"></div>
-                                <div class="freq-axis">
-                                    <span>8 kHz</span>
-                                    <span>4 kHz</span>
-                                    <span>2 kHz</span>
-                                    <span>0 Hz</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="spectrogram-column">
-                            <div class="spec-col-header">
-                                <span class="spec-dot enh"></span>
-                                <h3>Output: GTCRN Filtered Speech (Noise Cleared)</h3>
-                            </div>
-                            <div class="canvas-wrap">
-                                <canvas id="canvas-spec-enh" width="800" height="200"></canvas>
-                                <div class="spec-cursor" id="cursor-spec-enh"></div>
-                                <div class="freq-axis">
-                                    <span>8 kHz</span>
-                                    <span>4 kHz</span>
-                                    <span>2 kHz</span>
-                                    <span>0 Hz</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Single Difference Heatmap (Hidden by default) -->
-                    <div class="spectrogram-column" id="spec-diff-wrapper" style="display: none; margin-top: 1rem;">
-                        <div class="spec-col-header">
-                            <span class="spec-dot diff"></span>
-                            <h3>Suppressed Spectral Energy (Subtracted Noise Component)</h3>
-                        </div>
-                        <div class="canvas-wrap">
-                            <canvas id="canvas-spec-diff" width="800" height="200"></canvas>
-                            <div class="freq-axis">
-                                <span>8 kHz</span>
-                                <span>4 kHz</span>
-                                <span>2 kHz</span>
-                                <span>0 Hz</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ══════════════════════════════════════════════════════════════ -->
-            <!-- TAB 2: LIVE STREAM (Real-time WebSocket Microphone Filter)    -->
-            <!-- ══════════════════════════════════════════════════════════════ -->
-            <section class="tab-pane" id="pane-stream" style="display: none;">
-                <div class="stream-panel-container">
-                    <div class="stream-header-card">
-                        <div class="stream-info">
-                            <h2>Live Microphone Streaming DSP</h2>
-                            <p>Continuous low-latency audio capture via Web Audio API. 16ms hops (256 samples @ 16kHz) streamed over WebSocket to ONNX Streaming Enhancer and synthesized via Overlap-Add.</p>
-                        </div>
-                        <button class="btn primary-btn btn-stream-toggle" id="stream-toggle-btn">
-                            <span class="btn-icon">🎙️</span>
-                            <span id="stream-toggle-text">Start Live Streaming</span>
-                        </button>
-                    </div>
-
-                    <div class="stream-stats-bar">
-                        <div class="stat-card">
-                            <span class="stat-label">Stream Status</span>
-                            <span class="stat-value text-muted" id="live-stream-status">STOPPED</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Streamed Frames</span>
-                            <span class="stat-value" id="live-stream-frames">0</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Hop Latency</span>
-                            <span class="stat-value" id="live-stream-latency">16.0</span>
-                            <span class="stat-unit">ms</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Audio Feedback</span>
-                            <div class="stream-toggle-wrap">
-                                <input type="checkbox" id="stream-speaker-toggle">
-                                <label for="stream-speaker-toggle">Output to Speakers (Use Headphones!)</label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="stream-visualizer-card">
-                        <h3>Real-Time Streaming Spectrogram</h3>
-                        <canvas id="canvas-stream-spec" width="800" height="220"></canvas>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ══════════════════════════════════════════════════════════════ -->
-            <!-- TAB 3: EDGE TELEMETRY (Pi 4B Compute Budget & Diagnostics)    -->
-            <!-- ══════════════════════════════════════════════════════════════ -->
-            <section class="tab-pane" id="pane-telemetry" style="display: none;">
-                <div class="telemetry-grid">
-                    <div class="stats-bar">
-                        <div class="stat-card" id="card-edge-latency">
-                            <span class="stat-label">Callback Latency</span>
-                            <span class="stat-value" id="edge-latency-val">—</span>
-                            <span class="stat-unit">ms</span>
-                        </div>
-                        <div class="stat-card" id="card-edge-xrun">
-                            <span class="stat-label">ALSA Xruns</span>
-                            <span class="stat-value" id="edge-xrun-val">0</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Operating Mode</span>
-                            <span class="stat-value text-green" id="edge-mode-val">ENHANCED</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Total Processed</span>
-                            <span class="stat-value" id="edge-frame-val">0</span>
-                            <span class="stat-unit">frames</span>
-                        </div>
-                    </div>
-
-                    <div class="budget-section">
-                        <div class="budget-container">
-                            <h2>Compute Budget (Live Frame Timing)</h2>
-                            <div class="gauge-bar-container">
-                                <div class="gauge-bar" id="compute-gauge"></div>
-                                <div class="gauge-redline" title="16ms Hop Deadline"></div>
-                            </div>
-                            <div class="gauge-label"><span id="compute-val">0.0</span> ms / 16.0 ms Hop Interval</div>
-                        </div>
-
-                        <div class="budget-container">
-                            <h2>Algorithmic Latency Breakdown</h2>
-                            <ul class="static-budget-list">
-                                <li><span>STFT Analysis Window</span><span>32.0 ms (512 samples)</span></li>
-                                <li><span>Hop Size / Algorithmic Delay</span><span>16.0 ms (256 samples)</span></li>
-                                <li><span>ALSA Ring Buffers</span><span>16.0 ms</span></li>
-                                <li><span>GTCRN INT8 Inference Budget</span><span>~4.5 ms</span></li>
-                                <li class="total-budget"><span>Total End-to-End Latency</span><span>~68.5 ms</span></li>
-                            </ul>
+                        <div class="player-metrics" id="studio-metrics-display">
+                            <span>Processing Time: <strong id="st-proc-time">—</strong> ms</span>
+                            <span>RTF: <strong id="st-rtf">—</strong></span>
+                            <span>SNR Improvement: <strong id="st-snr" class="text-emerald">—</strong> dB</span>
                         </div>
                     </div>
                 </div>
@@ -387,13 +292,14 @@
         </main>
 
         <!-- Footer -->
-        <footer id="app-footer">
-            <span>GTCRN Speech Enhancement Studio • Smart India Hackathon (SIH 26052)</span>
-            <span>Sampling Rate: 16,000 Hz Mono • Architecture: DPGRNN + TRA Complex Masking</span>
+        <footer class="app-footer">
+            <div class="footer-content">
+                <span>Smart India Hackathon • SIH-26052 Defense Audio Streamer</span>
+                <span>Dual-Path Gated Complex Recurrent Network (GTCRN)</span>
+            </div>
         </footer>
     </div>
 
-    <!-- Application Script -->
     <script src="/static/app.js"></script>
 </body>
 </html>

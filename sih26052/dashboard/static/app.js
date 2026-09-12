@@ -1,1094 +1,649 @@
 /**
- * app.js — GTCRN Speech Enhancement Studio Controller
- *
- * Handles:
- *   - Audio Studio: File Upload, Mic Recording, Presets
- *   - Model Enhancement API & Performance / SNR Metrics
- *   - Seamless Sample-Accurate A/B Audio Player with Synchronized Scrubber
- *   - High-Resolution Spectrogram & Waveform Canvas Rendering
- *   - Live WebSocket Microphone Streaming
- *   - Edge Hardware Telemetry Monitor
+ * app.js — SIH-26052 Minimalist Live Hardware Audio Studio Client
+ * Real-time WebSocket telemetry, 60fps spectrum analyzer, live audio streaming.
  */
 
-// ── Application State ───────────────────────────────────────────────────────
+// ── State ──────────────────────────────────────────────────────────────────
 const state = {
-    activeTab: 'studio',
-    inputMode: 'upload',
-    selectedEngine: 'pytorch',
-    currentPresetId: null,
-
-    // Audio blobs and buffers
-    rawAudioBlob: null,
-    rawAudioBuffer: null,
-    enhAudioBlob: null,
-    enhAudioBuffer: null,
-
-    // Web Audio Player
-    audioCtx: null,
-    rawSourceNode: null,
-    enhSourceNode: null,
-    rawGainNode: null,
-    enhGainNode: null,
-    masterGainNode: null,
-    activeSource: 'raw', // 'raw' or 'enh'
-    isPlaying: false,
-    isLooping: false,
-    playbackStartTime: 0,
-    playbackPauseOffset: 0,
-    audioDuration: 0,
-    animFrameId: null,
-
-    // Microphone Recording
-    mediaRecorder: null,
-    recordedChunks: [],
-    recStartTime: null,
-    recTimerInterval: null,
-    recStream: null,
-    recAnalyser: null,
-    recVuAnimId: null,
-
-    // Live Streaming Mode
-    streamWs: null,
-    streamAudioCtx: null,
-    streamWorklet: null,
-    isStreaming: false,
-    streamFrameCount: 0,
-
-    // Edge Telemetry WS
-    telemetryWs: null,
-
-    // Spectrogram data matrices
-    spectrograms: {
-        raw: null,
-        enh: null,
-        diff: null,
-    }
+    ws: null,
+    wsConnected: false,
+    isPipelineRunning: false,
+    isEnhanced: true,
+    volume: 85,
+    isListeningBrowser: false,
+    browserAudioCtx: null,
+    audioQueueTime: 0,
+    
+    // Waveform & Spectrum data buffers
+    specIn: new Float32Array(64),
+    specOut: new Float32Array(64),
+    targetSpecIn: new Float32Array(64),
+    targetSpecOut: new Float32Array(64),
+    oscBuffer: new Float32Array(256),
+    
+    // Studio player state
+    studioAudioCtx: null,
+    studioRawBuffer: null,
+    studioEnhBuffer: null,
+    studioSource: null,
+    studioIsPlaying: false,
+    studioMode: 'enh', // 'enh' or 'raw'
+    studioStartTime: 0,
+    studioPauseOffset: 0,
+    studioDuration: 0,
 };
 
-// ── Colormaps for Spectrograms ──────────────────────────────────────────────
-// Viridis-inspired colormap (purple -> teal -> yellow) for speech spectrograms
-const COLORMAP_VIRIDIS = [
-    [10, 8, 28],
-    [38, 16, 68],
-    [64, 43, 116],
-    [53, 94, 142],
-    [33, 144, 140],
-    [43, 175, 120],
-    [93, 201, 81],
-    [170, 220, 50],
-    [253, 231, 37],
-];
-
-// Inferno-inspired colormap (black -> red -> orange -> yellow) for difference
-const COLORMAP_INFERNO = [
-    [0, 0, 4],
-    [40, 11, 84],
-    [101, 21, 110],
-    [159, 42, 99],
-    [212, 72, 66],
-    [245, 125, 21],
-    [250, 193, 39],
-    [252, 255, 164],
-];
-
-// ── DOM References ──────────────────────────────────────────────────────────
+// ── DOM References ─────────────────────────────────────────────────────────
 const dom = {
-    // Navigation
-    tabBtns: document.querySelectorAll('.nav-tab'),
-    tabPanes: {
-        studio: document.getElementById('pane-studio'),
-        stream: document.getElementById('pane-stream'),
-        telemetry: document.getElementById('pane-telemetry'),
-    },
-    activeEngineLabel: document.getElementById('active-engine-label'),
+    // Top pills
+    wsDot: document.getElementById('ws-dot'),
+    wsStatusText: document.getElementById('ws-status-text'),
+    valCpuTemp: document.getElementById('val-cpu-temp'),
 
-    // Input Mode
-    modeBtnUpload: document.getElementById('mode-btn-upload'),
-    modeBtnRecord: document.getElementById('mode-btn-record'),
-    modeBtnPreset: document.getElementById('mode-btn-preset'),
-    subpanelUpload: document.getElementById('subpanel-upload'),
-    subpanelRecord: document.getElementById('subpanel-record'),
-    subpanelPreset: document.getElementById('subpanel-preset'),
-
-    // Upload
-    dropzone: document.getElementById('audio-dropzone'),
-    fileInput: document.getElementById('audio-file-input'),
-    browseBtn: document.getElementById('browse-btn'),
-    fileLoadedInfo: document.getElementById('file-loaded-info'),
-    loadedFileName: document.getElementById('loaded-file-name'),
-    loadedFileMeta: document.getElementById('loaded-file-meta'),
-    clearFileBtn: document.getElementById('clear-file-btn'),
-
-    // Record
-    recordToggleBtn: document.getElementById('record-toggle-btn'),
-    recordStatusText: document.getElementById('record-status-text'),
-    recordTimer: document.getElementById('record-timer'),
-    micVuBar: document.getElementById('mic-vu-bar'),
-
-    // Presets
-    presetSelect: document.getElementById('preset-select'),
-    loadPresetBtn: document.getElementById('load-preset-btn'),
-
-    // Engine & Action
-    engineSelect: document.getElementById('engine-select'),
-    enhanceBtn: document.getElementById('enhance-btn'),
-    enhanceBtnText: document.getElementById('enhance-btn-text'),
-    enhanceSpinner: document.getElementById('enhance-spinner'),
-
-    // Player
-    abBtnRaw: document.getElementById('ab-btn-raw'),
-    abBtnEnh: document.getElementById('ab-btn-enh'),
-    downloadBtn: document.getElementById('download-btn'),
-    waveformCanvas: document.getElementById('waveform-canvas'),
-    waveformPlayhead: document.getElementById('waveform-playhead'),
-    waveformEmpty: document.getElementById('waveform-empty'),
-    waveformContainer: document.getElementById('waveform-container'),
-    btnPlay: document.getElementById('btn-play'),
-    btnRestart: document.getElementById('btn-restart'),
-    btnLoop: document.getElementById('btn-loop'),
-    currentTime: document.getElementById('current-time'),
-    totalTime: document.getElementById('total-time'),
+    // Hero controls
+    btnPipelineToggle: document.getElementById('btn-pipeline-toggle'),
+    pipelineIndicator: document.getElementById('pipeline-indicator'),
+    pipelineBtnText: document.getElementById('pipeline-btn-text'),
+    pipelineStatusText: document.getElementById('pipeline-status-text'),
+    btnModeToggle: document.getElementById('btn-mode-toggle'),
+    modeIcon: document.getElementById('mode-icon'),
+    modeText: document.getElementById('mode-text'),
     volumeSlider: document.getElementById('volume-slider'),
+    volumeValDisplay: document.getElementById('volume-val-display'),
+    btnBrowserAudio: document.getElementById('btn-browser-audio'),
+    browserAudioText: document.getElementById('browser-audio-text'),
 
     // Metrics
-    valRtf: document.getElementById('val-rtf'),
-    subRtf: document.getElementById('sub-rtf'),
-    valProcTime: document.getElementById('val-proc-time'),
-    valSnrGain: document.getElementById('val-snr-gain'),
-    valNoiseRed: document.getElementById('val-noise-red'),
-    valPesq: document.getElementById('val-pesq'),
+    metricLatency: document.getElementById('metric-latency'),
+    metricRtf: document.getElementById('metric-rtf'),
+    metricSnr: document.getElementById('metric-snr'),
+    metricXruns: document.getElementById('metric-xruns'),
+    xrunBadge: document.getElementById('xrun-badge'),
 
-    // Spectrograms
-    specTabs: document.querySelectorAll('.spec-tab'),
-    specSideBySide: document.getElementById('spec-side-by-side'),
-    specDiffWrapper: document.getElementById('spec-diff-wrapper'),
-    canvasSpecRaw: document.getElementById('canvas-spec-raw'),
-    canvasSpecEnh: document.getElementById('canvas-spec-enh'),
-    canvasSpecDiff: document.getElementById('canvas-spec-diff'),
-    cursorSpecRaw: document.getElementById('cursor-spec-raw'),
-    cursorSpecEnh: document.getElementById('cursor-spec-enh'),
+    // Visualizer Canvases
+    canvasSpectrum: document.getElementById('canvas-spectrum'),
+    canvasOscilloscope: document.getElementById('canvas-oscilloscope'),
 
-    // Live Stream
-    streamToggleBtn: document.getElementById('stream-toggle-btn'),
-    streamToggleText: document.getElementById('stream-toggle-text'),
-    liveStreamStatus: document.getElementById('live-stream-status'),
-    liveStreamFrames: document.getElementById('live-stream-frames'),
-    liveStreamLatency: document.getElementById('live-stream-latency'),
-    streamSpeakerToggle: document.getElementById('stream-speaker-toggle'),
-    canvasStreamSpec: document.getElementById('canvas-stream-spec'),
+    // Virtual LEDs
+    vledSys: document.getElementById('vled-sys'),
+    vledSysState: document.getElementById('vled-sys-state'),
+    vledMode: document.getElementById('vled-mode'),
+    vledModeState: document.getElementById('vled-mode-state'),
+    vledAct: document.getElementById('vled-act'),
+    vledActState: document.getElementById('vled-act-state'),
+    btnTestLeds: document.getElementById('btn-test-leds'),
 
-    // Edge Telemetry
-    edgeLatencyVal: document.getElementById('edge-latency-val'),
-    edgeXrunVal: document.getElementById('edge-xrun-val'),
-    edgeModeVal: document.getElementById('edge-mode-val'),
-    edgeFrameVal: document.getElementById('edge-frame-val'),
-    computeGauge: document.getElementById('compute-gauge'),
-    computeVal: document.getElementById('compute-val'),
+    // Studio section
+    studioCollapseTrigger: document.getElementById('studio-collapse-trigger'),
+    studioCollapseIcon: document.getElementById('studio-collapse-icon'),
+    studioBody: document.getElementById('studio-body'),
+    fileInput: document.getElementById('file-input'),
+    btnBrowseFile: document.getElementById('btn-browse-file'),
+    fileChosenName: document.getElementById('file-chosen-name'),
+    presetDropdown: document.getElementById('preset-dropdown'),
+    btnLoadPreset: document.getElementById('btn-load-preset'),
+    btnEnhanceFile: document.getElementById('btn-enhance-file'),
+    enhanceBtnText: document.getElementById('enhance-btn-text'),
+    studioPlayer: document.getElementById('studio-player'),
+    btnStudioPlay: document.getElementById('btn-studio-play'),
+    abBtnEnh: document.getElementById('ab-btn-enh'),
+    abBtnRaw: document.getElementById('ab-btn-raw'),
+    studioTimeDisplay: document.getElementById('studio-time-display'),
+    stProcTime: document.getElementById('st-proc-time'),
+    stRtf: document.getElementById('st-rtf'),
+    stSnr: document.getElementById('st-snr'),
 };
 
-// ── Audio Context Initialization ───────────────────────────────────────────
-
-function getAudioContext() {
-    if (!state.audioCtx) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        state.audioCtx = new AudioContext({ sampleRate: 16000 });
+// ── Utility: Safe Base64 to ArrayBuffer (No fetch CORS issues) ─────────────
+function dataUriToArrayBuffer(dataUri) {
+    const base64Index = dataUri.indexOf(',');
+    const base64 = base64Index >= 0 ? dataUri.slice(base64Index + 1) : dataUri;
+    const binaryStr = window.atob(base64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
     }
-    if (state.audioCtx.state === 'suspended') {
-        state.audioCtx.resume();
-    }
-    return state.audioCtx;
+    return bytes.buffer;
 }
 
-// ── Navigation Tabs ────────────────────────────────────────────────────────
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
 
-dom.tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        dom.tabBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+// ── WebSocket Telemetry & Live Audio Stream ────────────────────────────────
+function initWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/hardware`;
 
-        Object.keys(dom.tabPanes).forEach(paneKey => {
-            if (paneKey === tab) {
-                dom.tabPanes[paneKey].style.display = 'flex';
-                dom.tabPanes[paneKey].classList.add('active');
-            } else {
-                dom.tabPanes[paneKey].style.display = 'none';
-                dom.tabPanes[paneKey].classList.remove('active');
+    try {
+        state.ws = new WebSocket(wsUrl);
+
+        state.ws.onopen = () => {
+            state.wsConnected = true;
+            dom.wsDot.className = 'dot-indicator online';
+            dom.wsStatusText.textContent = 'Live Telemetry';
+        };
+
+        state.ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                handleTelemetryUpdate(data);
+            } catch (err) {
+                console.debug('WS parse error:', err);
             }
-        });
+        };
 
-        state.activeTab = tab;
-        if (tab === 'studio') {
-            redrawWaveform();
-            renderSpectrograms();
-        }
-    });
-});
+        state.ws.onclose = () => {
+            state.wsConnected = false;
+            dom.wsDot.className = 'dot-indicator';
+            dom.wsStatusText.textContent = 'Reconnecting...';
+            setTimeout(initWebSocket, 2000);
+        };
 
-// ── Input Mode Tabs ────────────────────────────────────────────────────────
-
-function setInputMode(mode) {
-    state.inputMode = mode;
-    [dom.modeBtnUpload, dom.modeBtnRecord, dom.modeBtnPreset].forEach(b => b.classList.remove('active'));
-    [dom.subpanelUpload, dom.subpanelRecord, dom.subpanelPreset].forEach(p => p.style.display = 'none');
-
-    if (mode === 'upload') {
-        dom.modeBtnUpload.classList.add('active');
-        dom.subpanelUpload.style.display = 'block';
-    } else if (mode === 'record') {
-        dom.modeBtnRecord.classList.add('active');
-        dom.subpanelRecord.style.display = 'block';
-    } else if (mode === 'preset') {
-        dom.modeBtnPreset.classList.add('active');
-        dom.subpanelPreset.style.display = 'block';
+        state.ws.onerror = () => {
+            state.ws.close();
+        };
+    } catch (e) {
+        setTimeout(initWebSocket, 3000);
     }
 }
 
-dom.modeBtnUpload.addEventListener('click', () => setInputMode('upload'));
-dom.modeBtnRecord.addEventListener('click', () => setInputMode('record'));
-dom.modeBtnPreset.addEventListener('click', () => setInputMode('preset'));
+function handleTelemetryUpdate(data) {
+    // 1. Update pipeline running state
+    if (typeof data.is_running === 'boolean' && data.is_running !== state.isPipelineRunning) {
+        updatePipelineUI(data.is_running);
+    }
 
-// ── File Upload Handling ───────────────────────────────────────────────────
+    // 2. Update ANC mode
+    if (typeof data.enhanced === 'boolean' && data.enhanced !== state.isEnhanced) {
+        updateModeUI(data.enhanced);
+    }
 
-dom.browseBtn.addEventListener('click', () => dom.fileInput.click());
-dom.dropzone.addEventListener('click', (e) => {
-    if (e.target !== dom.clearFileBtn) {
-        dom.fileInput.click();
+    // 3. Update Metrics
+    if (data.processing_time_ms !== undefined) {
+        dom.metricLatency.textContent = data.processing_time_ms.toFixed(1);
+        const rtf = data.processing_time_ms / 16.0;
+        dom.metricRtf.textContent = rtf.toFixed(2);
+    }
+    if (data.snr_gain !== undefined) {
+        dom.metricSnr.textContent = `+${data.snr_gain.toFixed(1)}`;
+    }
+    if (data.xruns !== undefined) {
+        dom.metricXruns.textContent = data.xruns;
+        dom.xrunBadge.textContent = data.xruns === 0 ? 'Optimal' : `${data.xruns} Dropouts`;
+        dom.xrunBadge.className = data.xruns === 0 ? 'metric-badge text-emerald' : 'metric-badge text-rose';
+    }
+    if (data.cpu_temp !== undefined) {
+        dom.valCpuTemp.textContent = `${data.cpu_temp}°C`;
+    }
+
+    // 4. Update Virtual LEDs
+    const isSys = Boolean(data.is_running);
+    const isMode = Boolean(data.enhanced && data.is_running);
+    const isAct = Boolean(data.is_active && data.is_running);
+
+    dom.vledSys.classList.toggle('active', isSys);
+    dom.vledSysState.textContent = isSys ? 'ACTIVE' : 'OFF';
+    dom.vledSysState.className = isSys ? 'led-live-state text-emerald' : 'led-live-state text-muted';
+
+    dom.vledMode.classList.toggle('active', isMode);
+    dom.vledModeState.textContent = isMode ? 'FILTERING ON' : (isSys ? 'PASSTHROUGH' : 'OFF');
+    dom.vledModeState.className = isMode ? 'led-live-state text-accent' : 'led-live-state text-muted';
+
+    dom.vledAct.classList.toggle('active', isAct);
+    dom.vledActState.textContent = isAct ? 'VOICE DETECTED' : 'QUIET';
+    dom.vledActState.className = isAct ? 'led-live-state text-amber' : 'led-live-state text-muted';
+
+    // 5. Update Frequency Spectrum Targets
+    if (Array.isArray(data.spec_in)) {
+        for (let i = 0; i < Math.min(64, data.spec_in.length); i++) {
+            state.targetSpecIn[i] = data.spec_in[i];
+        }
+    }
+    if (Array.isArray(data.spec_out)) {
+        for (let i = 0; i < Math.min(64, data.spec_out.length); i++) {
+            state.targetSpecOut[i] = data.spec_out[i];
+        }
+    }
+
+    // 6. Push audio chunk to live oscilloscope & browser audio player
+    if (Array.isArray(data.audio_chunk) && data.audio_chunk.length > 0) {
+        // Shift oscilloscope buffer
+        state.oscBuffer.copyWithin(0, data.audio_chunk.length);
+        state.oscBuffer.set(data.audio_chunk, state.oscBuffer.length - data.audio_chunk.length);
+
+        // Play in browser if enabled
+        if (state.isListeningBrowser && state.browserAudioCtx) {
+            playAudioChunkInBrowser(data.audio_chunk);
+        }
+    }
+}
+
+// ── Live Browser Audio Stream Player ───────────────────────────────────────
+function playAudioChunkInBrowser(samples) {
+    const ctx = state.browserAudioCtx;
+    if (!ctx || ctx.state === 'suspended') {
+        if (ctx) ctx.resume();
+        return;
+    }
+
+    const buffer = ctx.createBuffer(1, samples.length, 16000);
+    const channelData = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) {
+        channelData[i] = samples[i];
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+
+    const currentTime = ctx.currentTime;
+    if (state.audioQueueTime < currentTime) {
+        state.audioQueueTime = currentTime + 0.02;
+    }
+
+    source.start(state.audioQueueTime);
+    state.audioQueueTime += buffer.duration;
+}
+
+dom.btnBrowserAudio.addEventListener('click', () => {
+    state.isListeningBrowser = !state.isListeningBrowser;
+    if (state.isListeningBrowser) {
+        if (!state.browserAudioCtx) {
+            state.browserAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        }
+        if (state.browserAudioCtx.state === 'suspended') {
+            state.browserAudioCtx.resume();
+        }
+        dom.browserAudioText.textContent = 'Stop Listening in Browser';
+        dom.btnBrowserAudio.classList.add('running');
+    } else {
+        dom.browserAudioText.textContent = 'Listen Live in Browser';
+        dom.btnBrowserAudio.classList.remove('running');
     }
 });
+
+// ── Hardware Controls ──────────────────────────────────────────────────────
+function updatePipelineUI(running) {
+    state.isPipelineRunning = running;
+    if (running) {
+        dom.btnPipelineToggle.classList.add('running');
+        dom.pipelineBtnText.textContent = 'Stop Hardware Stream';
+        dom.pipelineStatusText.textContent = 'Hardware Active • Streaming 48kHz I2S ➔ 16kHz GTCRN';
+    } else {
+        dom.btnPipelineToggle.classList.remove('running');
+        dom.pipelineBtnText.textContent = 'Start Hardware Stream';
+        dom.pipelineStatusText.textContent = 'Ready to stream (48 kHz I2S ➔ 16 kHz GTCRN)';
+    }
+}
+
+function updateModeUI(enhanced) {
+    state.isEnhanced = enhanced;
+    if (enhanced) {
+        dom.btnModeToggle.className = 'btn btn-mode active';
+        dom.modeIcon.textContent = '🛡️';
+        dom.modeText.textContent = 'ANC Filtering: ACTIVE';
+    } else {
+        dom.btnModeToggle.className = 'btn btn-mode bypass';
+        dom.modeIcon.textContent = '⚠️';
+        dom.modeText.textContent = 'Raw Passthrough: BYPASS';
+    }
+}
+
+dom.btnPipelineToggle.addEventListener('click', async () => {
+    try {
+        if (!state.isPipelineRunning) {
+            dom.pipelineBtnText.textContent = 'Starting...';
+            const res = await fetch('/api/hardware/start', { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'started' || data.status === 'already_running') {
+                updatePipelineUI(true);
+            }
+        } else {
+            dom.pipelineBtnText.textContent = 'Stopping...';
+            const res = await fetch('/api/hardware/stop', { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'stopped' || data.status === 'not_running') {
+                updatePipelineUI(false);
+            }
+        }
+    } catch (err) {
+        alert(`Hardware control error: ${err.message}`);
+        updatePipelineUI(state.isPipelineRunning);
+    }
+});
+
+dom.btnModeToggle.addEventListener('click', async () => {
+    try {
+        const res = await fetch('/api/hardware/toggle-mode', { method: 'POST' });
+        const data = await res.json();
+        updateModeUI(data.enhanced);
+    } catch (err) {
+        console.error('Mode toggle error:', err);
+    }
+});
+
+// Headphone Volume Slider
+let volumeDebounce = null;
+dom.volumeSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value, 10);
+    dom.volumeValDisplay.textContent = `${val}%`;
+    state.volume = val;
+
+    clearTimeout(volumeDebounce);
+    volumeDebounce = setTimeout(async () => {
+        const formData = new FormData();
+        formData.append('volume', val);
+        try {
+            await fetch('/api/hardware/volume', { method: 'POST', body: formData });
+        } catch (e) {
+            console.error('Volume adjust error:', e);
+        }
+    }, 100);
+});
+
+// Test Physical LEDs Button
+dom.btnTestLeds.addEventListener('click', async () => {
+    try {
+        dom.btnTestLeds.disabled = true;
+        await fetch('/api/hardware/test-leds', { method: 'POST' });
+        // Flash virtual LEDs on UI as feedback
+        dom.vledSys.classList.add('active');
+        dom.vledMode.classList.add('active');
+        dom.vledAct.classList.add('active');
+        setTimeout(() => {
+            dom.btnTestLeds.disabled = false;
+        }, 2100);
+    } catch (err) {
+        dom.btnTestLeds.disabled = false;
+    }
+});
+
+// ── 60fps Smooth Canvas Visualizers ────────────────────────────────────────
+function renderLoop() {
+    drawSpectrumCanvas();
+    drawOscilloscopeCanvas();
+    requestAnimationFrame(renderLoop);
+}
+
+function drawSpectrumCanvas() {
+    const canvas = dom.canvasSpectrum;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    const numBars = 64;
+    const barWidth = (w / numBars) - 2;
+
+    for (let i = 0; i < numBars; i++) {
+        // Smooth lerp towards target magnitudes
+        state.specIn[i] += (state.targetSpecIn[i] - state.specIn[i]) * 0.25;
+        state.specOut[i] += (state.targetSpecOut[i] - state.specOut[i]) * 0.25;
+
+        const x = i * (barWidth + 2);
+
+        // Normalize bar height (clamp to height - 20)
+        const inH = Math.min(h - 15, Math.max(2, state.specIn[i] * (h * 0.7)));
+        const outH = Math.min(h - 15, Math.max(2, state.specOut[i] * (h * 0.7)));
+
+        // 1. Draw Raw Input Bar (Subtle slate grey / amber)
+        ctx.fillStyle = 'rgba(100, 116, 139, 0.4)';
+        ctx.fillRect(x, h - inH, barWidth, inH);
+
+        // 2. Draw Cleaned Output Bar (Vibrant Emerald)
+        ctx.fillStyle = '#10b981';
+        ctx.fillRect(x, h - outH, barWidth, outH);
+    }
+
+    // Grid baseline
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(0, h - 1);
+    ctx.lineTo(w, h - 1);
+    ctx.stroke();
+}
+
+function drawOscilloscopeCanvas() {
+    const canvas = dom.canvasOscilloscope;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const midY = h / 2;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Center baseline
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+    ctx.lineTo(w, midY);
+    ctx.stroke();
+
+    // Waveform line
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+
+    const buf = state.oscBuffer;
+    const sliceWidth = w / buf.length;
+    let x = 0;
+
+    for (let i = 0; i < buf.length; i++) {
+        const v = buf[i];
+        const y = midY + (v * (h * 0.45));
+
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+        x += sliceWidth;
+    }
+
+    ctx.stroke();
+}
+
+// ── Studio Section (Collapsible & Robust) ──────────────────────────────────
+let selectedStudioFile = null;
+
+dom.studioCollapseTrigger.addEventListener('click', () => {
+    const isHidden = dom.studioBody.style.display === 'none';
+    dom.studioBody.style.display = isHidden ? 'block' : 'none';
+    dom.studioCollapseIcon.textContent = isHidden ? '▾' : '▸';
+});
+
+dom.btnBrowseFile.addEventListener('click', () => dom.fileInput.click());
 
 dom.fileInput.addEventListener('change', (e) => {
     if (e.target.files && e.target.files[0]) {
-        handleSelectedAudioFile(e.target.files[0]);
+        selectedStudioFile = e.target.files[0];
+        dom.fileChosenName.textContent = selectedStudioFile.name;
+        dom.btnEnhanceFile.disabled = false;
     }
 });
 
-dom.dropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dom.dropzone.classList.add('dragover');
-});
-
-dom.dropzone.addEventListener('dragleave', () => {
-    dom.dropzone.classList.remove('dragover');
-});
-
-dom.dropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dom.dropzone.classList.remove('dragover');
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        handleSelectedAudioFile(e.dataTransfer.files[0]);
-    }
-});
-
-dom.clearFileBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    resetLoadedAudio();
-});
-
-async function handleSelectedAudioFile(file) {
-    state.rawAudioBlob = file;
-    state.currentPresetId = null;
-
-    dom.loadedFileName.textContent = file.name;
-    const sizeKB = (file.size / 1024).toFixed(1);
-    dom.loadedFileMeta.textContent = `${sizeKB} KB • Loading waveform...`;
-
-    dom.dropzone.querySelector('.dropzone-content').style.display = 'none';
-    dom.fileLoadedInfo.style.display = 'flex';
-
-    await loadAudioData(file);
-    dom.loadedFileMeta.textContent = `16.0 kHz • ${state.audioDuration.toFixed(1)}s • ${sizeKB} KB`;
-    dom.enhanceBtn.disabled = false;
-}
-
-function resetLoadedAudio() {
-    stopPlayback();
-    state.rawAudioBlob = null;
-    state.rawAudioBuffer = null;
-    state.enhAudioBlob = null;
-    state.enhAudioBuffer = null;
-    state.audioDuration = 0;
-    state.currentPresetId = null;
-
-    dom.dropzone.querySelector('.dropzone-content').style.display = 'block';
-    dom.fileLoadedInfo.style.display = 'none';
-    dom.fileInput.value = '';
-    dom.enhanceBtn.disabled = true;
-    dom.btnPlay.disabled = true;
-    dom.btnRestart.disabled = true;
-    dom.downloadBtn.disabled = true;
-
-    dom.waveformEmpty.style.display = 'flex';
-    clearCanvas(dom.waveformCanvas);
-    clearCanvas(dom.canvasSpecRaw);
-    clearCanvas(dom.canvasSpecEnh);
-    clearCanvas(dom.canvasSpecDiff);
-    dom.currentTime.textContent = '0:00.0';
-    dom.totalTime.textContent = '0:00.0';
-
-    // Reset metrics
-    dom.valRtf.textContent = '—';
-    dom.valProcTime.textContent = '—';
-    dom.valSnrGain.textContent = '—';
-    dom.valNoiseRed.textContent = '—';
-    dom.valPesq.textContent = '—';
-}
-
-// ── Decode and Load Audio ──────────────────────────────────────────────────
-
-async function loadAudioData(blobOrUrl) {
-    const ctx = getAudioContext();
-    let arrayBuffer;
-
-    if (blobOrUrl instanceof Blob) {
-        arrayBuffer = await blobOrUrl.arrayBuffer();
-    } else if (typeof blobOrUrl === 'string') {
-        const response = await fetch(blobOrUrl);
-        arrayBuffer = await response.arrayBuffer();
-    }
-
-    state.rawAudioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    state.audioDuration = state.rawAudioBuffer.duration;
-
-    dom.totalTime.textContent = formatTime(state.audioDuration);
-    dom.waveformEmpty.style.display = 'none';
-    dom.btnPlay.disabled = false;
-    dom.btnRestart.disabled = false;
-
-    // Redraw waveform and initial preview
-    redrawWaveform();
-}
-
-// ── Presets Loader ─────────────────────────────────────────────────────────
-
-async function fetchPresets() {
+// Load Presets
+async function loadPresets() {
     try {
         const res = await fetch('/api/presets');
         const data = await res.json();
-        dom.presetSelect.innerHTML = '';
-
         if (data.presets && data.presets.length > 0) {
-            data.presets.forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p.id;
-                opt.textContent = `${p.title} ${p.has_clean ? '✓ (Clean Reference)' : ''}`;
-                dom.presetSelect.appendChild(opt);
-            });
+            dom.presetDropdown.innerHTML = data.presets.map(p => 
+                `<option value="${p.id}">${p.title}</option>`
+            ).join('');
         } else {
-            dom.presetSelect.innerHTML = '<option value="">No presets found</option>';
+            dom.presetDropdown.innerHTML = '<option value="">No sample presets available</option>';
         }
     } catch (e) {
-        console.error('Failed to load presets:', e);
+        dom.presetDropdown.innerHTML = '<option value="">Error loading samples</option>';
     }
 }
 
-dom.loadPresetBtn.addEventListener('click', async () => {
-    const presetId = dom.presetSelect.value;
+dom.btnLoadPreset.addEventListener('click', async () => {
+    const presetId = dom.presetDropdown.value;
     if (!presetId) return;
 
-    dom.loadPresetBtn.disabled = true;
-    dom.loadPresetBtn.textContent = 'Loading...';
-
     try {
+        dom.btnLoadPreset.disabled = true;
+        dom.btnLoadPreset.textContent = 'Loading...';
         const res = await fetch(`/api/preset/${presetId}`);
         const data = await res.json();
 
-        state.currentPresetId = presetId;
-        const noisyBlob = await (await fetch(data.noisy_audio_url)).blob();
-        state.rawAudioBlob = noisyBlob;
-
-        await loadAudioData(noisyBlob);
-        dom.enhanceBtn.disabled = false;
-
-        // Auto-enhance preset sample for instant gratification!
-        enhanceAudio();
-    } catch (e) {
-        console.error('Failed to load preset audio:', e);
-        alert('Could not load preset audio.');
+        // Convert base64 data to blob
+        const audioBuf = dataUriToArrayBuffer(data.audio_url);
+        selectedStudioFile = new Blob([audioBuf], { type: 'audio/wav' });
+        dom.fileChosenName.textContent = `${presetId}.wav (Sample Loaded)`;
+        dom.btnEnhanceFile.disabled = false;
+    } catch (err) {
+        alert('Failed to load sample: ' + err.message);
     } finally {
-        dom.loadPresetBtn.disabled = false;
-        dom.loadPresetBtn.textContent = 'Load Sample';
+        dom.btnLoadPreset.disabled = false;
+        dom.btnLoadPreset.textContent = 'Load Sample';
     }
 });
 
-// ── Microphone Recording ───────────────────────────────────────────────────
-
-dom.recordToggleBtn.addEventListener('click', toggleRecording);
-
-async function toggleRecording() {
-    if (state.mediaRecorder && state.mediaRecorder.state === 'recording') {
-        stopRecording();
-    } else {
-        startRecording();
-    }
-}
-
-async function startRecording() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        state.recStream = stream;
-
-        const ctx = getAudioContext();
-        const src = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        src.connect(analyser);
-        state.recAnalyser = analyser;
-
-        state.recordedChunks = [];
-        state.mediaRecorder = new MediaRecorder(stream);
-
-        state.mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) {
-                state.recordedChunks.push(e.data);
-            }
-        };
-
-        state.mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(state.recordedChunks, { type: 'audio/webm' });
-            state.rawAudioBlob = audioBlob;
-            state.currentPresetId = null;
-
-            await loadAudioData(audioBlob);
-            dom.enhanceBtn.disabled = false;
-            dom.recordStatusText.textContent = 'Recorded Audio Ready!';
-        };
-
-        state.mediaRecorder.start();
-        dom.recordToggleBtn.classList.add('recording');
-        dom.recordStatusText.textContent = 'Recording in progress...';
-        state.recStartTime = Date.now();
-
-        // Update timer
-        state.recTimerInterval = setInterval(() => {
-            const elapsed = (Date.now() - state.recStartTime) / 1000;
-            dom.recordTimer.textContent = formatTime(elapsed);
-            if (elapsed >= 30) {
-                stopRecording();
-            }
-        }, 100);
-
-        // Update VU meter
-        updateVuMeter();
-    } catch (e) {
-        console.error('Microphone error:', e);
-        alert('Microphone access denied or not available.');
-    }
-}
-
-function stopRecording() {
-    if (state.mediaRecorder && state.mediaRecorder.state === 'recording') {
-        state.mediaRecorder.stop();
-    }
-    if (state.recStream) {
-        state.recStream.getTracks().forEach(t => t.stop());
-    }
-    clearInterval(state.recTimerInterval);
-    cancelAnimationFrame(state.recVuAnimId);
-    dom.recordToggleBtn.classList.remove('recording');
-    dom.micVuBar.style.width = '0%';
-}
-
-function updateVuMeter() {
-    if (!state.recAnalyser) return;
-    const data = new Uint8Array(state.recAnalyser.frequencyBinCount);
-    state.recAnalyser.getByteFrequencyData(data);
-    let sum = 0;
-    for (let i = 0; i < data.length; i++) {
-        sum += data[i];
-    }
-    const avg = sum / data.length;
-    const pct = Math.min(100, (avg / 128) * 100);
-    dom.micVuBar.style.width = pct + '%';
-    state.recVuAnimId = requestAnimationFrame(updateVuMeter);
-}
-
-// ── Model Enhancement Execution ───────────────────────────────────────────
-
-dom.engineSelect.addEventListener('change', (e) => {
-    state.selectedEngine = e.target.value;
-    const selectedOpt = dom.engineSelect.options[dom.engineSelect.selectedIndex];
-    dom.activeEngineLabel.textContent = selectedOpt.text.split(' (')[0];
-});
-
-dom.enhanceBtn.addEventListener('click', enhanceAudio);
-
-async function enhanceAudio() {
-    if (!state.rawAudioBlob) return;
-
-    dom.enhanceBtn.disabled = true;
-    dom.enhanceBtnText.textContent = 'Processing with GTCRN...';
-    dom.enhanceSpinner.style.display = 'inline-block';
-
-    const formData = new FormData();
-    formData.append('file', state.rawAudioBlob, 'input.wav');
-    formData.append('engine', state.selectedEngine);
-    if (state.currentPresetId) {
-        formData.append('preset_id', state.currentPresetId);
-    }
+dom.btnEnhanceFile.addEventListener('click', async () => {
+    if (!selectedStudioFile) return;
 
     try {
-        const t0 = performance.now();
-        const res = await fetch('/api/enhance', {
-            method: 'POST',
-            body: formData,
-        });
+        dom.btnEnhanceFile.disabled = true;
+        dom.enhanceBtnText.textContent = 'Processing...';
 
+        const formData = new FormData();
+        formData.append('file', selectedStudioFile, 'input.wav');
+        formData.append('engine', 'onnx_stream_int8');
+
+        const res = await fetch('/api/enhance', { method: 'POST', body: formData });
         if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || 'Enhancement failed');
+            const errJson = await res.json();
+            throw new Error(errJson.detail || 'Enhancement failed');
         }
 
         const data = await res.json();
 
-        // Load enhanced audio into buffer
-        const ctx = getAudioContext();
-        const enhBlob = await (await fetch(data.enhanced_audio_url)).blob();
-        state.enhAudioBlob = enhBlob;
-        const enhBuf = await (await fetch(data.enhanced_audio_url)).arrayBuffer();
-        state.enhAudioBuffer = await ctx.decodeAudioData(enhBuf);
-
-        // Update metrics
-        dom.valRtf.textContent = `${data.rtf.toFixed(2)}x`;
-        dom.subRtf.textContent = data.rtf < 0.20 ? '⚡ Ultra-Fast (<0.20x)' : 'Real-Time Capable';
-        dom.valProcTime.textContent = `${data.processing_time_ms.toFixed(0)}`;
-        dom.valSnrGain.textContent = `+${data.metrics.snr_improvement_db.toFixed(1)}`;
-        dom.valNoiseRed.textContent = `-${data.metrics.noise_reduction_db.toFixed(1)}`;
-        dom.valPesq.textContent = data.metrics.pesq ? `${data.metrics.pesq.toFixed(2)}` : '—';
-
-        // Update spectrogram data
-        state.spectrograms = data.spectrograms;
-        renderSpectrograms();
-
-        // Enable download and switch to enhanced mode
-        dom.downloadBtn.disabled = false;
-        setActiveAudioSource('enh');
-
-        // Play if not playing
-        if (!state.isPlaying) {
-            startPlayback();
+        // Initialize studio audio context
+        if (!state.studioAudioCtx) {
+            state.studioAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
-    } catch (e) {
-        console.error('Enhancement error:', e);
-        alert(`Enhancement error: ${e.message}`);
-    } finally {
-        dom.enhanceBtn.disabled = false;
-        dom.enhanceBtnText.textContent = 'Enhance Audio';
-        dom.enhanceSpinner.style.display = 'none';
-    }
-}
 
-// Download Button
-dom.downloadBtn.addEventListener('click', () => {
-    if (!state.enhAudioBlob) return;
-    const url = URL.createObjectURL(state.enhAudioBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `gtcrn_enhanced_${Date.now()}.wav`;
-    a.click();
-    URL.revokeObjectURL(url);
-});
+        // Decode raw and enhanced buffers safely
+        const rawBuf = dataUriToArrayBuffer(data.raw_audio_url);
+        const enhBuf = dataUriToArrayBuffer(data.enhanced_audio_url);
 
-// ── Sample-Accurate A/B Audio Player ───────────────────────────────────────
+        state.studioRawBuffer = await state.studioAudioCtx.decodeAudioData(rawBuf);
+        state.studioEnhBuffer = await state.studioAudioCtx.decodeAudioData(enhBuf);
+        state.studioDuration = state.studioEnhBuffer.duration;
 
-function setupAudioNodes() {
-    const ctx = getAudioContext();
+        // Display metrics
+        dom.stProcTime.textContent = data.processing_time_ms.toFixed(0);
+        dom.stRtf.textContent = `${data.rtf.toFixed(2)}x`;
+        dom.stSnr.textContent = `+${data.metrics.snr_improvement_db.toFixed(1)}`;
 
-    // Master Volume Gain
-    if (!state.masterGainNode) {
-        state.masterGainNode = ctx.createGain();
-        state.masterGainNode.connect(ctx.destination);
-    }
-    state.masterGainNode.gain.setValueAtTime(parseFloat(dom.volumeSlider.value), ctx.currentTime);
+        // Show player
+        dom.studioPlayer.style.display = 'flex';
+        dom.studioTimeDisplay.textContent = `00:00 / ${formatTime(state.studioDuration)}`;
 
-    // Stop old sources if any
-    if (state.rawSourceNode) {
-        try { state.rawSourceNode.stop(); } catch (e) {}
-        state.rawSourceNode.disconnect();
-    }
-    if (state.enhSourceNode) {
-        try { state.enhSourceNode.stop(); } catch (e) {}
-        state.enhSourceNode.disconnect();
-    }
-
-    // Create raw and enhanced source nodes
-    state.rawSourceNode = ctx.createBufferSource();
-    state.rawSourceNode.buffer = state.rawAudioBuffer;
-    state.rawSourceNode.loop = state.isLooping;
-
-    state.rawGainNode = ctx.createGain();
-    state.rawSourceNode.connect(state.rawGainNode);
-    state.rawGainNode.connect(state.masterGainNode);
-
-    if (state.enhAudioBuffer) {
-        state.enhSourceNode = ctx.createBufferSource();
-        state.enhSourceNode.buffer = state.enhAudioBuffer;
-        state.enhSourceNode.loop = state.isLooping;
-
-        state.enhGainNode = ctx.createGain();
-        state.enhSourceNode.connect(state.enhGainNode);
-        state.enhGainNode.connect(state.masterGainNode);
-    }
-
-    // Set initial gains with immediate values
-    applySourceGains(true);
-
-    // Handle audio completion
-    state.rawSourceNode.onended = () => {
-        if (!state.isLooping && state.isPlaying) {
-            stopPlayback();
-            state.playbackPauseOffset = 0;
-            updatePlayhead(0);
-        }
-    };
-}
-
-function applySourceGains(immediate = false) {
-    if (!state.rawGainNode) return;
-    const ctx = getAudioContext();
-    const now = ctx.currentTime;
-    const fadeDuration = immediate ? 0.001 : 0.025; // 25ms click-free crossfade!
-
-    if (state.activeSource === 'raw' || !state.enhAudioBuffer) {
-        state.rawGainNode.gain.setTargetAtTime(1.0, now, fadeDuration);
-        if (state.enhGainNode) {
-            state.enhGainNode.gain.setTargetAtTime(0.0, now, fadeDuration);
-        }
-    } else {
-        state.rawGainNode.gain.setTargetAtTime(0.0, now, fadeDuration);
-        if (state.enhGainNode) {
-            state.enhGainNode.gain.setTargetAtTime(1.0, now, fadeDuration);
-        }
-    }
-}
-
-function setActiveAudioSource(source) {
-    state.activeSource = source;
-    if (source === 'raw') {
-        dom.abBtnRaw.classList.add('active');
-        dom.abBtnEnh.classList.remove('active');
-    } else {
+        // Switch to enhanced mode
+        state.studioMode = 'enh';
         dom.abBtnEnh.classList.add('active');
         dom.abBtnRaw.classList.remove('active');
+
+    } catch (err) {
+        alert('Enhancement error: ' + err.message);
+    } finally {
+        dom.btnEnhanceFile.disabled = false;
+        dom.enhanceBtnText.textContent = 'Enhance File';
     }
-    applySourceGains(false);
+});
+
+// Studio Playback
+dom.btnStudioPlay.addEventListener('click', () => {
+    if (state.studioIsPlaying) {
+        stopStudioPlayback();
+    } else {
+        startStudioPlayback();
+    }
+});
+
+function startStudioPlayback() {
+    if (!state.studioAudioCtx || !state.studioEnhBuffer) return;
+
+    if (state.studioAudioCtx.state === 'suspended') {
+        state.studioAudioCtx.resume();
+    }
+
+    const activeBuffer = state.studioMode === 'enh' ? state.studioEnhBuffer : state.studioRawBuffer;
+
+    state.studioSource = state.studioAudioCtx.createBufferSource();
+    state.studioSource.buffer = activeBuffer;
+    state.studioSource.connect(state.studioAudioCtx.destination);
+
+    state.studioSource.onended = () => {
+        state.studioIsPlaying = false;
+        dom.btnStudioPlay.textContent = '▶ Play';
+        state.studioPauseOffset = 0;
+    };
+
+    state.studioStartTime = state.studioAudioCtx.currentTime - state.studioPauseOffset;
+    state.studioSource.start(0, state.studioPauseOffset);
+
+    state.studioIsPlaying = true;
+    dom.btnStudioPlay.textContent = '⏸ Pause';
 }
 
-dom.abBtnRaw.addEventListener('click', () => setActiveAudioSource('raw'));
+function stopStudioPlayback() {
+    if (state.studioSource) {
+        try { state.studioSource.stop(); } catch (e) {}
+    }
+    state.studioIsPlaying = false;
+    dom.btnStudioPlay.textContent = '▶ Play';
+}
+
 dom.abBtnEnh.addEventListener('click', () => {
-    if (!state.enhAudioBuffer) {
-        alert('Please click "Enhance Audio" first to generate the filtered sound!');
-        return;
-    }
-    setActiveAudioSource('enh');
-});
-
-// Transport Controls
-dom.btnPlay.addEventListener('click', () => {
-    if (state.isPlaying) {
-        pausePlayback();
-    } else {
-        startPlayback();
+    if (state.studioMode === 'enh') return;
+    state.studioMode = 'enh';
+    dom.abBtnEnh.classList.add('active');
+    dom.abBtnRaw.classList.remove('active');
+    if (state.studioIsPlaying) {
+        state.studioPauseOffset = state.studioAudioCtx.currentTime - state.studioStartTime;
+        stopStudioPlayback();
+        startStudioPlayback();
     }
 });
 
-dom.btnRestart.addEventListener('click', () => {
-    state.playbackPauseOffset = 0;
-    if (state.isPlaying) {
-        startPlayback();
-    } else {
-        updatePlayhead(0);
-        dom.currentTime.textContent = '0:00.0';
+dom.abBtnRaw.addEventListener('click', () => {
+    if (state.studioMode === 'raw') return;
+    state.studioMode = 'raw';
+    dom.abBtnRaw.classList.add('active');
+    dom.abBtnEnh.classList.remove('active');
+    if (state.studioIsPlaying) {
+        state.studioPauseOffset = state.studioAudioCtx.currentTime - state.studioStartTime;
+        stopStudioPlayback();
+        startStudioPlayback();
     }
 });
 
-dom.btnLoop.addEventListener('click', () => {
-    state.isLooping = !state.isLooping;
-    dom.btnLoop.classList.toggle('active', state.isLooping);
-    if (state.rawSourceNode) state.rawSourceNode.loop = state.isLooping;
-    if (state.enhSourceNode) state.enhSourceNode.loop = state.isLooping;
-});
-
-dom.volumeSlider.addEventListener('input', (e) => {
-    if (state.masterGainNode) {
-        state.masterGainNode.gain.setValueAtTime(parseFloat(e.target.value), getAudioContext().currentTime);
-    }
-});
-
-function startPlayback() {
-    if (!state.rawAudioBuffer) return;
-    const ctx = getAudioContext();
-
-    setupAudioNodes();
-
-    const offset = state.playbackPauseOffset % state.audioDuration;
-    state.playbackStartTime = ctx.currentTime - offset;
-
-    state.rawSourceNode.start(0, offset);
-    if (state.enhSourceNode) {
-        state.enhSourceNode.start(0, offset);
-    }
-
-    state.isPlaying = true;
-    dom.btnPlay.textContent = '⏸';
-    dom.btnPlay.title = 'Pause';
-
-    tickPlayback();
-}
-
-function pausePlayback() {
-    if (!state.isPlaying) return;
-    const ctx = getAudioContext();
-    state.playbackPauseOffset = ctx.currentTime - state.playbackStartTime;
-
-    if (state.rawSourceNode) {
-        try { state.rawSourceNode.stop(); } catch (e) {}
-    }
-    if (state.enhSourceNode) {
-        try { state.enhSourceNode.stop(); } catch (e) {}
-    }
-
-    state.isPlaying = false;
-    dom.btnPlay.textContent = '▶';
-    dom.btnPlay.title = 'Play';
-    cancelAnimationFrame(state.animFrameId);
-}
-
-function stopPlayback() {
-    pausePlayback();
-    state.playbackPauseOffset = 0;
-}
-
-function tickPlayback() {
-    if (!state.isPlaying) return;
-    const ctx = getAudioContext();
-    let currentSec = (ctx.currentTime - state.playbackStartTime);
-
-    if (state.isLooping && state.audioDuration > 0) {
-        currentSec = currentSec % state.audioDuration;
-    }
-
-    currentSec = Math.min(currentSec, state.audioDuration);
-    dom.currentTime.textContent = formatTime(currentSec);
-
-    const pct = state.audioDuration > 0 ? (currentSec / state.audioDuration) * 100 : 0;
-    updatePlayhead(pct);
-
-    state.animFrameId = requestAnimationFrame(tickPlayback);
-}
-
-function updatePlayhead(pct) {
-    const clamped = Math.max(0, Math.min(100, pct));
-    dom.waveformPlayhead.style.left = `${clamped}%`;
-    dom.cursorSpecRaw.style.left = `${clamped}%`;
-    dom.cursorSpecEnh.style.left = `${clamped}%`;
-}
-
-// Waveform Scrubber Click
-dom.waveformContainer.addEventListener('click', (e) => {
-    if (!state.audioDuration) return;
-    const rect = dom.waveformContainer.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const pct = clickX / rect.width;
-    const seekSec = pct * state.audioDuration;
-
-    state.playbackPauseOffset = seekSec;
-    updatePlayhead(pct * 100);
-    dom.currentTime.textContent = formatTime(seekSec);
-
-    if (state.isPlaying) {
-        startPlayback();
-    }
-});
-
-// ── Waveform Canvas Rendering ──────────────────────────────────────────────
-
-function redrawWaveform() {
-    const canvas = dom.waveformCanvas;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-
-    clearCanvas(canvas);
-    if (!state.rawAudioBuffer) return;
-
-    const data = state.rawAudioBuffer.getChannelData(0);
-    const step = Math.ceil(data.length / width);
-    const amp = height / 2;
-
-    // Draw center line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.beginPath();
-    ctx.moveTo(0, amp);
-    ctx.lineTo(width, amp);
-    ctx.stroke();
-
-    // Draw Raw audio waveform (amber/subtle)
-    ctx.fillStyle = 'rgba(245, 158, 11, 0.45)';
-    for (let i = 0; i < width; i++) {
-        let min = 1.0, max = -1.0;
-        for (let j = 0; j < step; j++) {
-            const val = data[(i * step) + j];
-            if (val < min) min = val;
-            if (val > max) max = val;
-        }
-        ctx.fillRect(i, amp + (min * amp), 1, Math.max(1, (max - min) * amp));
-    }
-
-    // If enhanced exists, overlay enhanced peaks in emerald
-    if (state.enhAudioBuffer) {
-        const enhData = state.enhAudioBuffer.getChannelData(0);
-        const enhStep = Math.ceil(enhData.length / width);
-        ctx.fillStyle = 'rgba(16, 185, 129, 0.75)';
-        for (let i = 0; i < width; i++) {
-            let min = 1.0, max = -1.0;
-            for (let j = 0; j < enhStep; j++) {
-                const val = enhData[(i * enhStep) + j];
-                if (val < min) min = val;
-                if (val > max) max = val;
-            }
-            ctx.fillRect(i, amp + (min * amp), 1, Math.max(1, (max - min) * amp));
-        }
-    }
-}
-
-// ── Spectrogram Canvas Rendering ───────────────────────────────────────────
-
-function renderSpectrograms() {
-    if (state.spectrograms.raw) {
-        drawSpectrogramMatrix(dom.canvasSpecRaw, state.spectrograms.raw, COLORMAP_VIRIDIS);
-    }
-    if (state.spectrograms.enh) {
-        drawSpectrogramMatrix(dom.canvasSpecEnh, state.spectrograms.enh, COLORMAP_VIRIDIS);
-    }
-    if (state.spectrograms.diff) {
-        drawSpectrogramMatrix(dom.canvasSpecDiff, state.spectrograms.diff, COLORMAP_INFERNO);
-    }
-}
-
-function drawSpectrogramMatrix(canvas, matrix, colormap) {
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-
-    ctx.fillStyle = '#020408';
-    ctx.fillRect(0, 0, width, height);
-
-    if (!matrix || matrix.length === 0) return;
-
-    const nFreq = matrix.length;
-    const nTime = matrix[0].length;
-    const colW = width / nTime;
-    const rowH = height / nFreq;
-
-    for (let i = 0; i < nFreq; i++) {
-        const y = height - ((i + 1) * rowH); // High frequencies at top
-        for (let j = 0; j < nTime; j++) {
-            const val = matrix[i][j]; // 0.0 - 1.0
-            const color = interpolateColor(val, colormap);
-            ctx.fillStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
-            ctx.fillRect(j * colW, y, colW + 1, rowH + 1);
-        }
-    }
-}
-
-function interpolateColor(t, map) {
-    const val = Math.max(0, Math.min(1, t));
-    const idx = val * (map.length - 1);
-    const lo = Math.floor(idx);
-    const hi = Math.min(lo + 1, map.length - 1);
-    const f = idx - lo;
-
-    return [
-        Math.round(map[lo][0] + f * (map[hi][0] - map[lo][0])),
-        Math.round(map[lo][1] + f * (map[hi][1] - map[lo][1])),
-        Math.round(map[lo][2] + f * (map[hi][2] - map[lo][2])),
-    ];
-}
-
-// Spectrogram View Tabs
-dom.specTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-        dom.specTabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const view = tab.dataset.view;
-
-        if (view === 'side-by-side') {
-            dom.specSideBySide.style.display = 'grid';
-            dom.specDiffWrapper.style.display = 'none';
-        } else {
-            dom.specSideBySide.style.display = 'none';
-            dom.specDiffWrapper.style.display = 'block';
-            if (state.spectrograms.diff) {
-                drawSpectrogramMatrix(dom.canvasSpecDiff, state.spectrograms.diff, COLORMAP_INFERNO);
-            }
-        }
-    });
-});
-
-// ── Real-Time Streaming WebSocket ──────────────────────────────────────────
-
-dom.streamToggleBtn.addEventListener('click', toggleLiveStream);
-
-async function toggleLiveStream() {
-    if (state.isStreaming) {
-        stopLiveStream();
-    } else {
-        startLiveStream();
-    }
-}
-
-async function startLiveStream() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProto}//${window.location.host}/ws/stream`;
-
-        state.streamWs = new WebSocket(wsUrl);
-        state.streamWs.binaryType = 'arraybuffer';
-
-        state.streamWs.onopen = () => {
-            state.isStreaming = true;
-            state.streamFrameCount = 0;
-            dom.liveStreamStatus.textContent = 'STREAMING';
-            dom.liveStreamStatus.className = 'stat-value text-green';
-            dom.streamToggleText.textContent = 'Stop Streaming';
-            dom.streamToggleBtn.classList.add('recording');
-
-            // Setup Web Audio Capture at 16kHz
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            state.streamAudioCtx = new AudioContext({ sampleRate: 16000 });
-            const src = state.streamAudioCtx.createMediaStreamSource(stream);
-
-            // ScriptProcessorNode buffers 256 samples per 16ms
-            const processor = state.streamAudioCtx.createScriptProcessor(256, 1, 1);
-            src.connect(processor);
-            processor.connect(state.streamAudioCtx.destination); // Required in Chrome
-
-            processor.onaudioprocess = (e) => {
-                if (!state.isStreaming || state.streamWs.readyState !== WebSocket.OPEN) return;
-                const inputData = e.inputBuffer.getChannelData(0);
-                // Send raw float32 bytes
-                state.streamWs.send(inputData.buffer);
-            };
-
-            state.streamWorklet = processor;
-        };
-
-        state.streamWs.onmessage = (event) => {
-            if (event.data instanceof ArrayBuffer) {
-                state.streamFrameCount++;
-                dom.liveStreamFrames.textContent = state.streamFrameCount;
-
-                // Optionally play enhanced sound back through speakers
-                if (dom.streamSpeakerToggle.checked && state.streamAudioCtx) {
-                    const enhancedFloat = new Float32Array(event.data);
-                    playStreamChunk(enhancedFloat);
-                }
-            }
-        };
-
-        state.streamWs.onclose = () => {
-            stopLiveStream();
-        };
-    } catch (e) {
-        console.error('Live streaming failed:', e);
-        alert(`Could not start live stream: ${e.message}`);
-        stopLiveStream();
-    }
-}
-
-function playStreamChunk(floatArr) {
-    if (!state.streamAudioCtx) return;
-    const buf = state.streamAudioCtx.createBuffer(1, floatArr.length, 16000);
-    buf.copyToChannel(floatArr, 0);
-    const src = state.streamAudioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(state.streamAudioCtx.destination);
-    src.start();
-}
-
-function stopLiveStream() {
-    state.isStreaming = false;
-    if (state.streamWs) {
-        state.streamWs.close();
-        state.streamWs = null;
-    }
-    if (state.streamWorklet) {
-        state.streamWorklet.disconnect();
-        state.streamWorklet = null;
-    }
-    if (state.streamAudioCtx) {
-        state.streamAudioCtx.close();
-        state.streamAudioCtx = null;
-    }
-
-    dom.liveStreamStatus.textContent = 'STOPPED';
-    dom.liveStreamStatus.className = 'stat-value text-muted';
-    dom.streamToggleText.textContent = 'Start Live Streaming';
-    dom.streamToggleBtn.classList.remove('recording');
-}
-
-// ── Edge Telemetry WebSocket Client ────────────────────────────────────────
-
-function connectTelemetry() {
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProto}//${window.location.host}/ws`;
-
-    state.telemetryWs = new WebSocket(wsUrl);
-
-    state.telemetryWs.onopen = () => {
-        document.getElementById('connection-indicator').querySelector('.indicator-dot').className = 'indicator-dot online';
-        document.getElementById('connection-text').textContent = 'Online';
-    };
-
-    state.telemetryWs.onmessage = (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            if (data.latency_ms !== undefined) {
-                dom.edgeLatencyVal.textContent = data.latency_ms.toFixed(1);
-            }
-            if (data.xruns !== undefined) {
-                dom.edgeXrunVal.textContent = data.xruns;
-            }
-            if (data.frame !== undefined) {
-                dom.edgeFrameVal.textContent = data.frame;
-            }
-            if (data.processing_time_ms !== undefined) {
-                const ms = data.processing_time_ms;
-                dom.computeVal.textContent = ms.toFixed(1);
-                const pct = Math.min(100, (ms / 20.0) * 100);
-                dom.computeGauge.style.width = `${pct}%`;
-                dom.computeGauge.style.backgroundColor = ms > 16.0 ? 'var(--accent-red)' : (ms > 12.0 ? 'var(--accent-amber)' : 'var(--accent-emerald)');
-            }
-        } catch (err) {}
-    };
-
-    state.telemetryWs.onclose = () => {
-        document.getElementById('connection-indicator').querySelector('.indicator-dot').className = 'indicator-dot offline';
-        document.getElementById('connection-text').textContent = 'Offline';
-        setTimeout(connectTelemetry, 3000);
-    };
-}
-
-// ── Utility Helpers ────────────────────────────────────────────────────────
-
-function formatTime(seconds) {
-    if (isNaN(seconds) || seconds < 0) return '0:00.0';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 10);
-    return `${m}:${s < 10 ? '0' : ''}${s}.${ms}`;
-}
-
-function clearCanvas(canvas) {
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-
-// ── App Initialization ─────────────────────────────────────────────────────
-
+// ── Startup ────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
-    fetchPresets();
-    connectTelemetry();
+    initWebSocket();
+    loadPresets();
+    requestAnimationFrame(renderLoop);
+
+    // Initial status fetch
+    fetch('/api/hardware/status')
+        .then(r => r.json())
+        .then(d => {
+            updatePipelineUI(d.is_running);
+            updateModeUI(d.enhanced);
+            if (d.volume) {
+                dom.volumeSlider.value = d.volume;
+                dom.volumeValDisplay.textContent = `${d.volume}%`;
+            }
+        })
+        .catch(() => {});
 });

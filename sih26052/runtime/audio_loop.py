@@ -127,6 +127,20 @@ class AudioLoop:
         # Native-rate output buffer (upsampled) pre-allocated
         self._native_out_buf = np.zeros(self._native_hop, dtype=np.float32)
 
+        # ── Output gain & activity hysteresis ──
+        self.output_gain: float = 1.0
+        self._act_hold_frames: int = 0
+
+    def set_gain(self, gain: float) -> None:
+        """Set digital output gain (0.0 to 3.0)."""
+        self.output_gain = max(0.0, min(3.0, float(gain)))
+
+    def set_enhanced_mode(self, enabled: bool) -> None:
+        """Dynamically enable/disable AI enhancement (ANC)."""
+        self.ab_switch.set_enhanced(enabled)
+        if self.leds.enabled:
+            self.leds.set_enhancement_mode(enabled)
+
     def _callback(self, indata, outdata, frames, time_info, status):
         """Sounddevice stream callback.
 
@@ -140,49 +154,57 @@ class AudioLoop:
                      at 16 kHz block size; avoids malloc in callback)
         """
         frame_start = time.monotonic()
-
-        # ── Track xruns ──
-        if status:
-            self.xrun_count += 1
-
         self.frame_count += 1
 
-        # ── Get input channels (Dual INMP441: Left = Primary Mic, Right = Ref Mic) ──
-        # Decimate from native_sr to sr by taking every Nth sample
+        if status.input_overflow or status.output_underflow:
+            self.xrun_count += 1
+
+        # ── Decimate input if native_sr > sr ──
         ratio = self._resample_ratio
-        primary_ch = indata[:, 0]
-        np.copyto(self._mono_buffer, primary_ch[::ratio] if ratio > 1 else primary_ch)
-        if indata.shape[1] > 1:
-            ref_ch = indata[:, 1]
-            np.copyto(self._ref_buffer, ref_ch[::ratio] if ratio > 1 else ref_ch)
-        mono_in = self._mono_buffer
+        if ratio > 1:
+            input_block = indata[::ratio, :]
+        else:
+            input_block = indata
+
+        # Split channels: Ch0 = Primary (Speech+Noise), Ch1 = Reference (Noise)
+        if input_block.shape[1] >= 2:
+            np.copyto(self._mono_buffer, input_block[:, 0])
+            np.copyto(self._ref_buffer, input_block[:, 1])
+        else:
+            np.copyto(self._mono_buffer, input_block[:, 0])
+            np.copyto(self._ref_buffer, input_block[:, 0])
+
+        mono = self._mono_buffer
+        np.copyto(self._raw_buffer, mono)
 
         # ── STFT analysis ──
-        spec = self.ola.analyze(mono_in)
+        spec = self.ola.analyze(mono)
 
-        # ── Neural enhancement ──
+        # ── Model enhancement ──
         enhanced_spec = self.enhancer.process_frame(spec)
 
         # ── ISTFT synthesis ──
-        # Delay raw audio by 1 hop to phase-align with OLA latency
-        self._raw_buffer[:] = self._prev_mono_buffer
-        self._prev_mono_buffer[:] = mono_in[:self.hop]
-        
-        self._enhanced_buffer[:] = self.ola.synthesize(enhanced_spec)
+        enhanced_time = self.ola.synthesize(enhanced_spec)
+        np.copyto(self._enhanced_buffer, enhanced_time)
 
-        # ── Impulse gate (Phase 5 — no-op if not set) ──
+        # ── Impulse gate (Phase 5) ──
         if self.impulse_gate is not None:
-            self._enhanced_buffer = self.impulse_gate.process(self._enhanced_buffer)
+            gated = self.impulse_gate.process(self._enhanced_buffer)
+            np.copyto(self._enhanced_buffer, gated)
 
-        # ── A/B crossfade ──
-        output = self.ab_switch.apply_vectorized(
-            self._raw_buffer, self._enhanced_buffer
+        # ── A/B switch (instant mode toggle) ──
+        output = self.ab_switch.select(
+            raw=self._prev_mono_buffer,
+            enhanced=self._enhanced_buffer,
         )
+        np.copyto(self._prev_mono_buffer, self._raw_buffer)
+
+        # ── Apply digital headphone gain ──
+        if self.output_gain != 1.0:
+            output = np.clip(output * self.output_gain, -1.0, 1.0)
 
         # ── Write to output (upsample back to native_sr if needed) ──
-        ratio = self._resample_ratio
         if ratio > 1:
-            # Zero-order hold: repeat each sample `ratio` times (no malloc)
             np.copyto(self._native_out_buf, np.repeat(output, ratio))
             outdata[:, 0] = self._native_out_buf
             if outdata.shape[1] > 1:
@@ -192,25 +214,42 @@ class AudioLoop:
             if outdata.shape[1] > 1:
                 outdata[:, 1] = output
 
-        # Update LED 2 (GTCRN Filtered active mode) & LED 3 (Activity)
-        if self.leds.enabled and self.frame_count % 5 == 0:
-            self.leds.set_enhancement_mode(self.ab_switch.is_enhanced)
-            # Pulse activity LED if audio level exceeds threshold
-            is_active = np.max(np.abs(output)) > 0.05
-            self.leds.set_activity(is_active)
+        # ── Smooth Voice Activity LED with hysteresis (no flickering on air) ──
+        peak_level = float(np.max(np.abs(output)))
+        if peak_level > 0.12:  # Speech threshold (calibrated so ambient air won't trigger)
+            self._act_hold_frames = 15  # Hold for ~240ms (15 frames * 16ms)
+        elif self._act_hold_frames > 0:
+            self._act_hold_frames -= 1
 
-        # ── Push metrics to dashboard queue (non-blocking) ──
+        is_active = self._act_hold_frames > 0
+
+        # Update LED 2 (GTCRN Filtered active mode) & LED 3 (Activity)
+        if self.leds.enabled and self.frame_count % 3 == 0:
+            self.leds.set_enhancement_mode(self.ab_switch.is_enhanced)
+            self.leds.set_activity(is_active)
+        # ── Push metrics to dashboard queue (non-blocking, ~30 fps) ──
         try:
-            metrics = {
-                "frame": self.frame_count,
-                "spec_in": spec[:, 0].copy(),   # real part for spectrogram
-                "spec_out": enhanced_spec[:, 0].copy(),
-                "xruns": self.xrun_count,
-                "enhanced": self.ab_switch.is_enhanced,
-                "processing_time_ms": (time.monotonic() - frame_start) * 1000,
-                "gate_state": self.impulse_gate.state if self.impulse_gate else "idle",
-            }
-            self.metrics_queue.put_nowait(metrics)
+            if self.frame_count % 2 == 0:
+                mag_in = np.abs(spec[:64, 0])
+                mag_out = np.abs(enhanced_spec[:64, 0])
+                rms_in = float(np.sqrt(np.mean(mono**2)))
+                rms_out = float(np.sqrt(np.mean(output**2)))
+                snr_gain = max(0.0, 20.0 * np.log10(max(rms_out, 1e-5) / max(rms_in, 1e-5) + 1.0))
+                metrics = {
+                    "frame": self.frame_count,
+                    "rms_in": round(rms_in, 4),
+                    "rms_out": round(rms_out, 4),
+                    "snr_gain": round(snr_gain, 1),
+                    "spec_in": [round(float(v), 3) for v in mag_in],
+                    "spec_out": [round(float(v), 3) for v in mag_out],
+                    "xruns": self.xrun_count,
+                    "enhanced": self.ab_switch.is_enhanced,
+                    "processing_time_ms": round((time.monotonic() - frame_start) * 1000, 2),
+                    "is_active": is_active,
+                    "gate_state": self.impulse_gate.state if self.impulse_gate else "idle",
+                    "audio_chunk": output[:128].astype(np.float32).tolist(),
+                }
+                self.metrics_queue.put_nowait(metrics)
         except queue.Full:
             pass  # Dashboard is behind — drop this frame's metrics
 

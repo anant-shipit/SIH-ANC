@@ -27,6 +27,7 @@ from sih26052.dashboard.processor import (
     read_audio_from_bytes,
     write_audio_to_base64_wav,
 )
+from sih26052.dashboard.hardware_bridge import hardware_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +52,75 @@ def create_app():
     # Mount static assets
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Set of connected telemetry WebSocket clients
-    telemetry_clients: set[WebSocket] = set()
+    @app.on_event("startup")
+    async def startup_event():
+        asyncio.create_task(hardware_bridge.telemetry_broadcaster())
 
     @app.get("/")
     async def index():
         return FileResponse(STATIC_DIR / "index.html")
+
+    # ── Hardware AudioLoop & Diagnostics API ─────────────────────────────────
+
+    @app.get("/api/hardware/status")
+    async def hardware_status():
+        """Retrieve real-time Pi hardware pipeline status & diagnostics."""
+        return hardware_bridge.get_status()
+
+    @app.post("/api/hardware/start")
+    async def hardware_start(model: str = Form("models/gtcrn_finetuned_stream_int8.onnx")):
+        """Start the background hardware AudioLoop on Raspberry Pi."""
+        try:
+            res = hardware_bridge.start_pipeline(onnx_model=model)
+            return JSONResponse(content=res)
+        except Exception as e:
+            logger.exception("Hardware start error: %s", e)
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/api/hardware/stop")
+    async def hardware_stop():
+        """Stop the background hardware AudioLoop."""
+        return hardware_bridge.stop_pipeline()
+
+    @app.post("/api/hardware/toggle-mode")
+    async def hardware_toggle_mode():
+        """Toggle ANC Active vs Passthrough Bypass mode."""
+        is_enhanced = hardware_bridge.toggle_enhanced_mode()
+        return {"enhanced": is_enhanced}
+
+    @app.post("/api/hardware/volume")
+    async def hardware_set_volume(volume: int = Form(...)):
+        """Set headphone output volume (0-100%)."""
+        vol = hardware_bridge.set_volume(volume)
+        return {"volume": vol}
+
+    @app.post("/api/hardware/test-leds")
+    async def hardware_test_leds():
+        """Flash physical GPIO status LEDs for 2 seconds."""
+        hardware_bridge.test_physical_leds()
+        return {"status": "testing_leds"}
+
+    @app.websocket("/ws/hardware")
+    async def websocket_hardware_endpoint(websocket: WebSocket):
+        """High-speed 30fps telemetry and audio stream from Raspberry Pi hardware."""
+        await websocket.accept()
+        hardware_bridge.clients.add(websocket)
+        try:
+            while True:
+                data = await websocket.receive_text()
+                try:
+                    cmd = json.loads(data)
+                    action = cmd.get("action")
+                    if action == "toggle_mode":
+                        hardware_bridge.toggle_enhanced_mode()
+                    elif action == "set_volume":
+                        hardware_bridge.set_volume(cmd.get("volume", 85))
+                    elif action == "test_leds":
+                        hardware_bridge.test_physical_leds()
+                except Exception:
+                    pass
+        except WebSocketDisconnect:
+            hardware_bridge.clients.discard(websocket)
 
     # ── Model API ─────────────────────────────────────────────────────────────
 
@@ -205,30 +269,27 @@ def create_app():
     # ── Legacy Telemetry WebSocket ───────────────────────────────────────────
 
     @app.websocket("/ws")
-    async def websocket_telemetry_endpoint(websocket: WebSocket):
-        """Telemetry WebSocket endpoint for Raspberry Pi audio loop metrics."""
+    async def legacy_websocket(websocket: WebSocket):
+        """Unified telemetry WebSocket endpoint."""
         await websocket.accept()
-        telemetry_clients.add(websocket)
-        logger.info("Telemetry client connected (%d total)", len(telemetry_clients))
-
+        hardware_bridge.clients.add(websocket)
         try:
             while True:
                 await websocket.receive_text()
         except WebSocketDisconnect:
-            telemetry_clients.discard(websocket)
-            logger.info("Telemetry client disconnected (%d remaining)", len(telemetry_clients))
+            hardware_bridge.clients.discard(websocket)
 
     @app.get("/api/health")
     async def health():
         return {
             "status": "ok",
-            "telemetry_clients": len(telemetry_clients),
+            "telemetry_clients": len(hardware_bridge.clients),
+            "is_running": hardware_bridge.is_running,
             "model_ready": True,
             "available_engines": [e["id"] for e in model_manager.list_available_engines()],
         }
 
-    # Store telemetry clients on app state for bridge
-    app.state.clients = telemetry_clients
+    app.state.clients = hardware_bridge.clients
 
     return app
 
