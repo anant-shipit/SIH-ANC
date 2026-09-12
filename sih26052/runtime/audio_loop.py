@@ -70,6 +70,7 @@ class AudioLoop:
         hop: int = 256,
         queue_size: int = 100,
         use_impulse_gate: bool = False,
+        leds: Optional[Any] = None,
     ):
         from sih26052.runtime.ola import OverlapAdd
         from sih26052.runtime.enhancer import StreamingEnhancer
@@ -100,7 +101,7 @@ class AudioLoop:
         self.ola = OverlapAdd(nfft=nfft, hop=hop)
         self.enhancer = StreamingEnhancer(onnx_path, n_freq=nfft // 2 + 1)
         self.ab_switch = ABSwitch(sr=sr)
-        self.leds = LEDStatus(led_sys_pin=22, led_mode_pin=23, led_act_pin=24)
+        self.leds = leds if leds is not None else LEDStatus(led_sys_pin=22, led_mode_pin=23, led_act_pin=24)
         self.button_ref = None
 
         # ── Impulse gate placeholder (populated in Phase 5) ──
@@ -137,8 +138,12 @@ class AudioLoop:
 
     def set_enhanced_mode(self, enabled: bool) -> None:
         """Dynamically enable/disable AI enhancement (ANC)."""
-        self.ab_switch.set_enhanced(enabled)
-        if self.leds.enabled:
+        if hasattr(self.ab_switch, "set_enhanced"):
+            self.ab_switch.set_enhanced(enabled)
+        elif hasattr(self.ab_switch, "toggle"):
+            if self.ab_switch.is_enhanced != enabled:
+                self.ab_switch.toggle()
+        if self.leds and getattr(self.leds, "enabled", False):
             self.leds.set_enhancement_mode(enabled)
 
     def _callback(self, indata, outdata, frames, time_info, status):

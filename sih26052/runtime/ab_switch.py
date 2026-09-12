@@ -100,6 +100,25 @@ class ABSwitch:
         logger.info("A/B switch toggled → %s", "ENHANCED" if new_state else "BYPASS")
         return new_state
 
+    def set_enhanced(self, enabled: bool) -> bool:
+        """Explicitly set enhanced mode (True = enhanced, False = raw/bypass).
+
+        Returns the new state. Thread-safe.
+        """
+        with self._lock:
+            target = 1.0 if enabled else 0.0
+            if self._fade_target != target:
+                self._fade_target = target
+                distance = self._fade_target - self._fade_position
+                if abs(distance) < 1e-6:
+                    self._fade_step = 0.0
+                else:
+                    self._fade_step = distance / self.crossfade_samples
+
+        new_state = self._fade_target == 1.0
+        logger.info("A/B switch set → %s", "ENHANCED" if new_state else "BYPASS")
+        return new_state
+
     def apply(self, raw: np.ndarray, enhanced: np.ndarray) -> np.ndarray:
         """Mix raw and enhanced samples according to current fade position.
 

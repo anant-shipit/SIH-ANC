@@ -45,6 +45,11 @@ class HardwareBridge:
         self.cached_enh: Optional[np.ndarray] = None
         self.cached_sr: int = 16000
         self._playback_thread: Optional[threading.Thread] = None
+        try:
+            from sih26052.runtime.led_status import LEDStatus
+            self.leds = LEDStatus(22, 23, 24)
+        except Exception:
+            self.leds = None
         self._latest_telemetry: Dict[str, Any] = {
             "is_running": False,
             "enhanced": True,
@@ -120,16 +125,14 @@ class HardwareBridge:
         """Flash physical GPIO status LEDs (22, 23, 24) for 2 seconds."""
         def _flash():
             try:
-                from sih26052.runtime.led_status import LEDStatus
-                leds = LEDStatus(22, 23, 24)
-                leds.set_system_active(True)
-                leds.set_enhancement_mode(True)
-                leds.set_activity(True)
-                time.sleep(2.0)
-                if not self.is_running:
-                    leds.set_system_active(False)
-                leds.set_enhancement_mode(self.is_enhanced)
-                leds.set_activity(False)
+                if self.leds is not None:
+                    self.leds.set_system_active(True)
+                    self.leds.set_enhancement_mode(True)
+                    self.leds.set_activity(True)
+                    time.sleep(2.0)
+                    self.leds.set_system_active(self.is_running)
+                    self.leds.set_enhancement_mode(self.is_enhanced)
+                    self.leds.set_activity(False)
             except Exception as e:
                 logger.warning("LED test error: %s", e)
 
@@ -184,14 +187,10 @@ class HardwareBridge:
         sd.play(scaled, samplerate=sr, device=out_dev)
 
         # Indicate active playback on status LEDs
-        try:
-            from sih26052.runtime.led_status import LEDStatus
-            leds = LEDStatus(22, 23, 24)
-            leds.set_system_active(True)
-            leds.set_enhancement_mode(audio_type == "enhanced")
-            leds.set_activity(True)
-        except Exception:
-            pass
+        if self.leds is not None:
+            self.leds.set_system_active(True)
+            self.leds.set_enhancement_mode(audio_type == "enhanced")
+            self.leds.set_activity(True)
 
         return {"status": "playing", "type": audio_type, "duration": dur}
 
@@ -203,15 +202,10 @@ class HardwareBridge:
         except Exception:
             pass
 
-        try:
-            from sih26052.runtime.led_status import LEDStatus
-            leds = LEDStatus(22, 23, 24)
-            if not self.is_running:
-                leds.set_system_active(False)
-            leds.set_enhancement_mode(self.is_enhanced)
-            leds.set_activity(False)
-        except Exception:
-            pass
+        if self.leds is not None:
+            self.leds.set_system_active(self.is_running)
+            self.leds.set_enhancement_mode(self.is_enhanced)
+            self.leds.set_activity(False)
 
         return {"status": "stopped"}
 
@@ -240,6 +234,7 @@ class HardwareBridge:
             native_sr=native_sr,
             sr=16000,
             hop=256,
+            leds=self.leds,
         )
         self.audio_loop.set_gain((self.current_volume / 100.0) * 1.5)
         self.audio_loop.set_enhanced_mode(self.is_enhanced)
