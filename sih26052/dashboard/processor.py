@@ -25,6 +25,13 @@ except ImportError:
     torch = None
     HAS_TORCH = False
 
+try:
+    from gtcrn import GTCRN
+    HAS_PYTORCH_GTCRN = True
+except ImportError:
+    HAS_PYTORCH_GTCRN = False
+
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -95,12 +102,20 @@ class ModelEngineManager:
             raise FileNotFoundError(f"ONNX model not found: {model_path}")
 
         logger.info("Loading ONNX Streaming Enhancer: %s", model_path)
-        enhancer = StreamingEnhancer(model_path, n_freq=257)
-        if int8:
-            self._onnx_int8_enhancer = enhancer
-        else:
-            self._onnx_fp32_enhancer = enhancer
-        return enhancer
+        try:
+            enhancer = StreamingEnhancer(model_path, n_freq=257)
+            if int8:
+                self._onnx_int8_enhancer = enhancer
+            else:
+                self._onnx_fp32_enhancer = enhancer
+            return enhancer
+        except Exception as e:
+            if int8:
+                logger.warning("INT8 model failed to load (%s). Falling back to FP32 model...", e)
+                fallback = self.get_onnx_enhancer(int8=False)
+                self._onnx_int8_enhancer = fallback
+                return fallback
+            raise
 
     def _find_best_checkpoint(self) -> Optional[Path]:
         ckpt_dir = self.repo_root / "models" / "checkpoints"
@@ -124,13 +139,15 @@ class ModelEngineManager:
             self.repo_root / "models" / "gtcrn_stream.onnx"
         ).exists()
 
+        has_pytorch = HAS_TORCH and HAS_PYTORCH_GTCRN
+
         engines = [
             {
                 "id": "onnx_stream_int8",
-                "name": "ONNX Streaming INT8 (Edge Optimized)",
+                "name": "ONNX Streaming (Edge Optimized)",
                 "description": "Quantized streaming ONNX runtime model for ultra-low latency (<0.10 RTF).",
-                "available": has_int8,
-                "is_default": True if (not HAS_TORCH or has_int8) else False,
+                "available": has_int8 or has_fp32,
+                "is_default": True if not has_pytorch else False,
             },
             {
                 "id": "onnx_stream_fp32",
@@ -143,8 +160,8 @@ class ModelEngineManager:
                 "id": "pytorch",
                 "name": "PyTorch GTCRN (Highest Fidelity)",
                 "description": "Full complex STFT-domain neural network with 2x DPGRNN and TRA modules.",
-                "available": HAS_TORCH,
-                "is_default": False if (not HAS_TORCH or has_int8) else True,
+                "available": has_pytorch,
+                "is_default": True if has_pytorch else False,
             },
         ]
         return engines
@@ -155,9 +172,47 @@ model_manager = ModelEngineManager()
 
 
 def read_audio_from_bytes(audio_bytes: bytes) -> Tuple[np.ndarray, int]:
-    """Decode audio bytes (WAV, MP3, FLAC, OGG) to float32 numpy array and sample rate."""
+    """Decode audio bytes (WAV, MP3, FLAC, OGG, WebM, M4A, etc.) to float32 numpy array and sample rate."""
     buf = io.BytesIO(audio_bytes)
-    audio, sr = sf.read(buf, dtype="float32")
+    audio = None
+    sr = None
+
+    try:
+        audio, sr = sf.read(buf, dtype="float32")
+    except Exception as exc:
+        logger.warning("soundfile.read failed (%s). Attempting ffmpeg / afconvert fallback...", exc)
+        # Attempt 1: ffmpeg via stdin pipe
+        try:
+            import subprocess
+            proc = subprocess.run(
+                ["ffmpeg", "-v", "error", "-i", "pipe:0", "-f", "wav", "-ar", "16000", "-ac", "1", "pipe:1"],
+                input=audio_bytes,
+                capture_output=True,
+                check=True,
+            )
+            audio, sr = sf.read(io.BytesIO(proc.stdout), dtype="float32")
+        except Exception as ffmpeg_err:
+            logger.debug("ffmpeg fallback failed: %s", ffmpeg_err)
+            # Attempt 2: macOS afconvert if available
+            try:
+                import subprocess
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".in", delete=False) as f_in, \
+                     tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f_out:
+                    f_in.write(audio_bytes)
+                    f_in.flush()
+                    in_name, out_name = f_in.name, f_out.name
+                
+                try:
+                    subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", in_name, out_name], check=True)
+                    audio, sr = sf.read(out_name, dtype="float32")
+                finally:
+                    Path(in_name).unlink(missing_ok=True)
+                    Path(out_name).unlink(missing_ok=True)
+            except Exception as af_err:
+                logger.error("Audio decoding failed on all backends: %s | %s", exc, af_err)
+                raise ValueError("Error opening audio data: Format not recognised. Please ensure the file is an audio recording or valid WAV/MP3 file.") from exc
+
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
 
@@ -376,8 +431,9 @@ def process_audio_file(
         except Exception as e:
             logger.warning("Could not decode clean audio reference: %s", e)
 
-    # Automatic fallback if PyTorch is requested but not installed
-    if (engine == "pytorch" or not engine) and not HAS_TORCH:
+    # Automatic fallback if PyTorch is requested but not available
+    if (engine == "pytorch" or not engine) and (not HAS_TORCH or not HAS_PYTORCH_GTCRN):
+        logger.warning("PyTorch GTCRN is not available in this environment. Falling back to ONNX engine.")
         engine = "onnx_stream_int8"
 
     # Perform enhancement with selected engine

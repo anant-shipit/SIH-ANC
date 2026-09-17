@@ -32,7 +32,12 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 STATIC_DIR = Path(__file__).parent / "static"
-TEST_AUDIO_DIR = REPO_ROOT / "data" / "test_audio"
+TEST_AUDIO_DIR = STATIC_DIR / "eval_samples"
+if not TEST_AUDIO_DIR.exists() or not list(TEST_AUDIO_DIR.glob("*_noisy.wav")):
+    TEST_AUDIO_DIR = REPO_ROOT / "data" / "val_set"
+if not TEST_AUDIO_DIR.exists() or not list(TEST_AUDIO_DIR.glob("*_noisy.wav")):
+    TEST_AUDIO_DIR = REPO_ROOT / "data" / "test_audio"
+
 
 
 def create_app():
@@ -89,12 +94,19 @@ def create_app():
         """Retrieve audio data for a given preset ID."""
         noisy_path = TEST_AUDIO_DIR / f"{preset_id}_noisy.wav"
         if not noisy_path.exists():
-            # Try raw name
             noisy_path = TEST_AUDIO_DIR / preset_id
+        if not noisy_path.exists():
+            for d in [STATIC_DIR / "eval_samples", REPO_ROOT / "data" / "val_set", REPO_ROOT / "data" / "test_audio"]:
+                cand = d / f"{preset_id}_noisy.wav"
+                if cand.exists():
+                    noisy_path = cand
+                    break
         if not noisy_path.exists():
             raise HTTPException(status_code=404, detail="Preset file not found")
 
-        clean_path = TEST_AUDIO_DIR / f"{preset_id}_clean.wav"
+        clean_path = noisy_path.parent / f"{preset_id}_clean.wav"
+        if not clean_path.exists():
+            clean_path = TEST_AUDIO_DIR / f"{preset_id}_clean.wav"
 
         noisy_bytes = noisy_path.read_bytes()
         clean_bytes = clean_path.read_bytes() if clean_path.exists() else None

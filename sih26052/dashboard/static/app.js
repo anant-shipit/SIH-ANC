@@ -199,6 +199,78 @@ function getAudioContext() {
     return state.audioCtx;
 }
 
+// ── Pure-JS PCM 16-bit WAV Encoder & Decoder Utilities ─────────────────────
+
+function audioBufferToWav(buffer) {
+    const numChannels = 1;
+    const sampleRate = buffer.sampleRate || 16000;
+    const format = 1; // PCM
+    const bitDepth = 16;
+    
+    // Mix to mono if multiple channels
+    let channelData;
+    if (buffer.numberOfChannels > 1) {
+        const c0 = buffer.getChannelData(0);
+        const c1 = buffer.getChannelData(1);
+        channelData = new Float32Array(c0.length);
+        for (let i = 0; i < c0.length; i++) {
+            channelData[i] = (c0[i] + c1[i]) * 0.5;
+        }
+    } else {
+        channelData = buffer.getChannelData(0);
+    }
+    
+    const dataLength = channelData.length * 2;
+    const bufferLength = 44 + dataLength;
+    const arrayBuffer = new ArrayBuffer(bufferLength);
+    const view = new DataView(arrayBuffer);
+    
+    function writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+        }
+    }
+    
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataLength, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, format, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, bitDepth, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, dataLength, true);
+    
+    let offset = 44;
+    for (let i = 0; i < channelData.length; i++, offset += 2) {
+        let s = Math.max(-1, Math.min(1, channelData[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    
+    return new Blob([view], { type: 'audio/wav' });
+}
+
+function dataUriToBlob(dataUri) {
+    try {
+        const parts = dataUri.split(',');
+        const mime = parts[0].match(/:(.*?);/)[1] || 'audio/wav';
+        const binary = atob(parts[1]);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return new Blob([bytes], { type: mime });
+    } catch (e) {
+        return null;
+    }
+}
+
+
 // ── Navigation Tabs ────────────────────────────────────────────────────────
 
 dom.tabBtns.forEach(btn => {
@@ -286,7 +358,6 @@ dom.clearFileBtn.addEventListener('click', (e) => {
 });
 
 async function handleSelectedAudioFile(file) {
-    state.rawAudioBlob = file;
     state.currentPresetId = null;
 
     dom.loadedFileName.textContent = file.name;
@@ -297,8 +368,14 @@ async function handleSelectedAudioFile(file) {
     dom.fileLoadedInfo.style.display = 'flex';
 
     await loadAudioData(file);
+    if (state.rawAudioBuffer) {
+        state.rawAudioBlob = audioBufferToWav(state.rawAudioBuffer);
+    } else {
+        state.rawAudioBlob = file;
+    }
     dom.loadedFileMeta.textContent = `16.0 kHz • ${state.audioDuration.toFixed(1)}s • ${sizeKB} KB`;
     dom.enhanceBtn.disabled = false;
+    dom.downloadBtn.disabled = false;
 }
 
 function resetLoadedAudio() {
@@ -354,6 +431,7 @@ async function loadAudioData(blobOrUrl) {
     dom.waveformEmpty.style.display = 'none';
     dom.btnPlay.disabled = false;
     dom.btnRestart.disabled = false;
+    dom.downloadBtn.disabled = false;
 
     // Redraw waveform and initial preview
     redrawWaveform();
@@ -445,13 +523,18 @@ async function startRecording() {
         };
 
         state.mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(state.recordedChunks, { type: 'audio/webm' });
-            state.rawAudioBlob = audioBlob;
+            const rawWebmBlob = new Blob(state.recordedChunks, { type: 'audio/webm' });
             state.currentPresetId = null;
 
-            await loadAudioData(audioBlob);
+            await loadAudioData(rawWebmBlob);
+            if (state.rawAudioBuffer) {
+                state.rawAudioBlob = audioBufferToWav(state.rawAudioBuffer);
+            } else {
+                state.rawAudioBlob = rawWebmBlob;
+            }
             dom.enhanceBtn.disabled = false;
-            dom.recordStatusText.textContent = 'Recorded Audio Ready!';
+            dom.downloadBtn.disabled = false;
+            dom.recordStatusText.textContent = 'Recorded Audio Ready (PCM WAV)!';
         };
 
         state.mediaRecorder.start();
@@ -541,11 +624,14 @@ async function enhanceAudio() {
 
         const data = await res.json();
 
-        // Load enhanced audio into buffer
+        // Load enhanced audio into buffer via direct Blob decode
         const ctx = getAudioContext();
-        const enhBlob = await (await fetch(data.enhanced_audio_url)).blob();
+        let enhBlob = dataUriToBlob(data.enhanced_audio_url);
+        if (!enhBlob) {
+            enhBlob = await (await fetch(data.enhanced_audio_url)).blob();
+        }
         state.enhAudioBlob = enhBlob;
-        const enhBuf = await (await fetch(data.enhanced_audio_url)).arrayBuffer();
+        const enhBuf = await enhBlob.arrayBuffer();
         state.enhAudioBuffer = await ctx.decodeAudioData(enhBuf);
 
         // Update metrics
@@ -562,6 +648,7 @@ async function enhanceAudio() {
 
         // Enable download and switch to enhanced mode
         dom.downloadBtn.disabled = false;
+        dom.downloadBtn.innerHTML = '<span>⬇️</span> Download Filtered Audio';
         setActiveAudioSource('enh');
 
         // Play if not playing
@@ -580,13 +667,21 @@ async function enhanceAudio() {
 
 // Download Button
 dom.downloadBtn.addEventListener('click', () => {
-    if (!state.enhAudioBlob) return;
-    const url = URL.createObjectURL(state.enhAudioBlob);
+    const isEnh = state.activeSource === 'enh';
+    const blobToDownload = (isEnh && state.enhAudioBlob) ? state.enhAudioBlob : (state.enhAudioBlob || state.rawAudioBlob);
+    if (!blobToDownload) {
+        alert('Please record or load an audio file first.');
+        return;
+    }
+    const url = URL.createObjectURL(blobToDownload);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `gtcrn_enhanced_${Date.now()}.wav`;
+    const prefix = (blobToDownload === state.enhAudioBlob) ? 'gtcrn_enhanced' : 'noisy_raw';
+    a.download = `${prefix}_${Date.now()}.wav`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
 });
 
 // ── Sample-Accurate A/B Audio Player ───────────────────────────────────────
@@ -667,9 +762,15 @@ function setActiveAudioSource(source) {
     if (source === 'raw') {
         dom.abBtnRaw.classList.add('active');
         dom.abBtnEnh.classList.remove('active');
+        if (dom.downloadBtn && (state.rawAudioBlob || state.enhAudioBlob)) {
+            dom.downloadBtn.innerHTML = '<span>⬇️</span> Download Noisy Audio';
+        }
     } else {
         dom.abBtnEnh.classList.add('active');
         dom.abBtnRaw.classList.remove('active');
+        if (dom.downloadBtn && state.enhAudioBlob) {
+            dom.downloadBtn.innerHTML = '<span>⬇️</span> Download Filtered Audio';
+        }
     }
     applySourceGains(false);
 }
